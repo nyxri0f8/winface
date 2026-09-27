@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.jpg" alt="FaceGate Banner" width="100%">
+</p>
+
 # FaceGate (winface)
 
 Biometric Face Unlock Credential Provider for Windows 10 and 11.
