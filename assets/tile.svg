@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <!-- WinFace tile: original smiling face (no third-party emoji artwork) -->
+  <defs>
+    <radialGradient id="face" cx="42%" cy="36%" r="70%">
+      <stop offset="0" stop-color="#FFE680"/>
+      <stop offset="0.55" stop-color="#FFC93C"/>
+      <stop offset="1" stop-color="#F5A300"/>
+    </radialGradient>
+    <radialGradient id="cheek" r="50%">
+      <stop offset="0" stop-color="#FF8A65" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#FF8A65" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="192" height="192" fill="#10141C"/>
+  <circle cx="96" cy="96" r="72" fill="url(#face)"/>
+  <ellipse cx="72" cy="66" rx="24" ry="14" fill="#FFFFFF" opacity="0.28"/>
+  <ellipse cx="60" cy="112" rx="16" ry="11" fill="url(#cheek)"/>
+  <ellipse cx="132" cy="112" rx="16" ry="11" fill="url(#cheek)"/>
+  <ellipse cx="72" cy="84" rx="9" ry="13" fill="#3B2A14"/>
+  <ellipse cx="120" cy="84" rx="9" ry="13" fill="#3B2A14"/>
+  <circle cx="75" cy="79" r="3" fill="#FFFFFF"/>
+  <circle cx="123" cy="79" r="3" fill="#FFFFFF"/>
+  <path d="M60 112 Q96 150 132 112" fill="none" stroke="#3B2A14" stroke-width="9" stroke-linecap="round"/>
+</svg>
