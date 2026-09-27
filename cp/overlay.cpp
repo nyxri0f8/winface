@@ -60,10 +60,9 @@ void draw_partial(Graphics& g, Pen& pen, const PointF* pts, int n, float frac) {
     g.DrawPath(&pen, &path);
 }
 
-// Lift the lock-screen curtain the way a person would. Runs on the overlay thread, which is attached to the
-// sign-in (Winlogon) desktop, so the input goes there. Shift types nothing; the click lands in the empty top-left
-// corner, which has no control on the sign-in page either.
-void lift_curtain_by_input() {
+// Lift the lock-screen curtain the way a person would: Shift types nothing, and the click lands in the empty
+// top-left corner, which has no control on the sign-in page either.
+bool lift_curtain_by_input() {
     INPUT in[4] = {};
     in[0].type = in[1].type = INPUT_KEYBOARD;
     in[0].ki.wVk = in[1].ki.wVk = VK_SHIFT;
@@ -71,11 +70,31 @@ void lift_curtain_by_input() {
     in[2].type = in[3].type = INPUT_MOUSE;
     in[2].mi.dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTDOWN;
     in[3].mi.dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP;
-    UINT n = SendInput(4, in, sizeof(INPUT));
-    if (n != 4) log_event(L"curtain lift: SendInput sent %u of 4 (%lu)", n, GetLastError());
+    return send_input_on_input_desktop(in, 4);
 }
 
 }  // namespace
+
+// SendInput only works from a thread attached to the desktop that currently receives input. The overlay thread is
+// bound to the desktop it started on (and owns a window, so it can never switch), and right after Win+L the
+// secure desktop may not be the input desktop yet - so use a fresh, window-less thread attached to whatever
+// desktop is receiving input right now.
+bool send_input_on_input_desktop(INPUT* in, UINT n) {
+    UINT sent = 0;
+    DWORD err = 0;
+    HDESK d = OpenInputDesktop(0, FALSE, GENERIC_ALL);
+    if (!d) err = GetLastError();
+    else {
+        std::thread([&] {
+            if (!SetThreadDesktop(d)) { err = GetLastError(); return; }
+            sent = SendInput(n, in, sizeof(INPUT));
+            if (sent != n) err = GetLastError();
+        }).join();
+        CloseDesktop(d);
+    }
+    if (sent != n) log_event(L"curtain lift: sent %u of %u (error %lu)", sent, n, err);
+    return sent == n;
+}
 
 void play_unlock_sound() {
     std::wstring exe = module_dir() + L"\\fgsound.exe";
@@ -275,7 +294,7 @@ LRESULT CALLBACK Overlay::wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
             DWORD state = *(DWORD*)ps->Data;   // 0 off, 1 on, 2 dimmed
             if (state == 0 && self->wait_for_input_) {   // screen off: the curtain comes back down on wake
                 self->revealed_ = false;
-                self->lift_tried_ = false;
+                self->lift_tries_ = 0;
                 self->apply_visibility();
             }
             if (self->on_display_) self->on_display_(state == 1);
@@ -331,7 +350,7 @@ void Overlay::run(HWND parent) {
     WNDCLASSEXW wc{sizeof wc};
     wc.lpfnWndProc = wndproc;
     wc.hInstance = mod;
-    wc.lpszClassName = L"FaceGateOverlay";
+    wc.lpszClassName = L"WinFaceOverlay";
     RegisterClassExW(&wc);
 
     HMONITOR mon = MonitorFromWindow(parent, MONITOR_DEFAULTTOPRIMARY);
@@ -345,7 +364,7 @@ void Overlay::run(HWND parent) {
     y_ = mi.rcMonitor.top + int(40 * dpi_);
 
     HWND h = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
-                             wc.lpszClassName, L"FaceGate", WS_POPUP, x_, y_, w_, h_, nullptr, nullptr, mod, this);
+                             wc.lpszClassName, L"WinFace", WS_POPUP, x_, y_, w_, h_, nullptr, nullptr, mod, this);
     hwnd_ = h;
     HPOWERNOTIFY pn = h ? RegisterPowerSettingNotification(h, &GUID_CONSOLE_DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE) : nullptr;
     if (h && wait_for_input_) {
@@ -385,11 +404,19 @@ void Overlay::paint() {
     HWND h = hwnd_;
     if (!h || !src_) return;
     Snapshot s = src_();
-    // behind the curtain and the camera already knows you: lift the curtain, like Windows Hello does
-    if (wait_for_input_ && !revealed_ && s.waiting && !lift_tried_) {
-        lift_tried_ = true;
-        if (lift_) lift_(); else lift_curtain_by_input();
-        reveal(L"face recognised behind the lock screen");
+    // Behind the curtain and the camera already knows you: lift the curtain, like Windows Hello does. Retried for
+    // ~2 s while Windows is still switching desktops; the HUD only appears once the lift really happened, so it
+    // never covers the lock-screen picture. If every try is refused, a key press still works as always.
+    constexpr int kLiftTries = 7;
+    if (wait_for_input_ && !revealed_ && s.waiting && lift_tries_ < kLiftTries && now_s() >= lift_next_) {
+        ++lift_tries_;
+        lift_next_ = now_s() + 0.3;
+        if (lift_ ? lift_() : lift_curtain_by_input()) {
+            lift_tries_ = kLiftTries;
+            reveal(L"face recognised behind the lock screen");
+        } else if (lift_tries_ == kLiftTries) {
+            log_event(L"curtain lift refused %d times - waiting for a key press", kLiftTries);
+        }
     }
     if (s.has_face) last_ = s; else { last_.state = s.state; last_.hint = s.hint; last_.progress = s.progress; last_.direction = s.direction; }
 

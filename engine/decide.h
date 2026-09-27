@@ -1,4 +1,4 @@
-// FaceGate engine - unlock decision state machine (1:1 port of bench/fg/decide.py).
+// WinFace engine - unlock decision state machine (1:1 port of bench/fg/decide.py).
 #pragma once
 #include <deque>
 #include <map>

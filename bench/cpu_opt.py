@@ -1,6 +1,6 @@
 """CPU/battery optimisation: INT8-quantise the recognition model and measure cold start + speed + accuracy.
 
-Cold start matters because FaceGate loads everything fresh every time the lock screen appears.
+Cold start matters because WinFace loads everything fresh every time the lock screen appears.
 """
 import time
 from pathlib import Path

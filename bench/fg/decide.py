@@ -1,4 +1,4 @@
-"""FaceGate unlock decision engine (bench version; will be ported 1:1 to C++).
+"""WinFace unlock decision engine (bench version; will be ported 1:1 to C++).
 
 SEARCH     face at the right distance, identity matches 3 of the last 5 frames, texture looks real
 CHALLENGE  random "turn slightly LEFT/RIGHT": yaw must move >= TURN_DEG the asked way, the landmark

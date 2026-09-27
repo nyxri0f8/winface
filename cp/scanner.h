@@ -1,4 +1,4 @@
-// FaceGate CP - runs the face engine on a worker thread while the lock screen / prompt is up.
+// WinFace CP - runs the face engine on a worker thread while the lock screen / prompt is up.
 // Camera is on only while scanning; models stay loaded only as long as this DLL is loaded.
 #pragma once
 #include <atomic>

@@ -27,7 +27,7 @@ bool Scanner::ensure_models(std::string& err) {
     try {
         std::wstring md = module_dir() + L"\\models";
         Ort::InitApi();  // ORT_API_MANUAL_INIT: first touch of onnxruntime.dll happens here, never in DllMain
-        env_ = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_ERROR, "facegate");
+        env_ = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_ERROR, "winface");
         mesh_ = std::make_unique<fg::FaceMesh>(*env_, md);
         tex_ = std::make_unique<fg::Texture>(*env_, md);
         rec_ = std::make_unique<fg::Recognizer>(*env_, md);
@@ -80,7 +80,8 @@ void Scanner::run() {
         done_(false, why);
         return;
     }
-    log_event(L"scan start: camera %.0f ms, ready after %.0f ms", cam.open_ms(), now_ms() - t0);
+    log_event(L"scan start: camera %.0f ms, ready after %.0f ms (%s, %hs)", cam.open_ms(), now_ms() - t0, cam.info().name.c_str(),
+              cam.info().format.c_str());
 
     fg::Params prm;
     prm.match = cfg_.match_threshold();

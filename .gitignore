@@ -5,7 +5,7 @@ bench/logs/
 bench/shots/
 *.npz
 *.npy
-# secrets / runtime data (normally only in C:\ProgramData\FaceGate, listed here as a safety net)
+# secrets / runtime data (normally only in C:\ProgramData\WinFace, listed here as a safety net)
 *.tpm
 *.dpapi
 log.txt
@@ -27,3 +27,8 @@ __pycache__/
 assets/tile_preview.png
 brag-output/
 *.mp4
+
+# installer output
+dist/
+app/WinFace/bin/
+app/WinFace/obj/

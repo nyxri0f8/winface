@@ -206,7 +206,7 @@ IFACEMETHODIMP FaceCredential::ReportResult(NTSTATUS st, NTSTATUS sub, PWSTR* st
         log_event(L"logon result 0x%08X / 0x%08X", (unsigned)st, (unsigned)sub);
         if (st == STATUS_LOGON_FAILURE || sub == STATUS_LOGON_FAILURE || st == STATUS_WRONG_PASSWORD) {
             fails_ = (int)cfg_.max_fails;  // stored password is wrong (changed?) - stop until setup is re-run
-            SHStrDupW(L"Your password changed - re-run FaceGate setup. Use your PIN for now.", status);
+            SHStrDupW(L"Your password changed - re-run WinFace setup. Use your PIN for now.", status);
             *icon = CPSI_ERROR;
         }
     }

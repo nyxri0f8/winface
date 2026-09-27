@@ -1,7 +1,7 @@
 // Checks the lock-screen pieces without the lock screen:
 //   fgoverlaytest render <outdir> [backdrop.jpg]  render the real HUD code over a backdrop, 60 fps PNG frames
 //   fgoverlaytest live [shot.png]                  real Overlay window: hidden until a key press, shown after it
-//   fgoverlaytest dll <FaceGateCP.dll>             load the provider DLL like LogonUI does and create the provider
+//   fgoverlaytest dll <WinFaceCP.dll>             load the provider DLL like LogonUI does and create the provider
 //   fgoverlaytest wav <file.wav>                   parse the sound and ask the audio driver if it can play it (silent)
 //   fgoverlaytest sound                            play the unlock sound the way the provider does, then exit at once
 #include <windows.h>
@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "../cp/overlay.h"
+#include "../engine/camera.h"
 
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "winmm.lib")
@@ -154,7 +155,7 @@ int cmd_live(const wchar_t* shot) {
         s.progress = float(std::min(1.0, t / 4));
         return s;
     }, [](bool) {}, true, [&] { revealed = true; });
-    auto find = [] { return FindWindowW(L"FaceGateOverlay", L"FaceGate"); };
+    auto find = [] { return FindWindowW(L"WinFaceOverlay", L"WinFace"); };
     for (int i = 0; i < 50 && !find(); ++i) Sleep(20);
     HWND h = find();
     check(h != nullptr, "overlay window created");
@@ -183,7 +184,7 @@ int cmd_live(const wchar_t* shot) {
     std::atomic<int> lifts{0};
     std::atomic<bool> revealed2{false}, recognised{false};
     fgcp::Overlay ov2;
-    ov2.set_curtain_lifter([&] { ++lifts; inject_key(VK_F24); });   // real one sends Shift + a corner click
+    ov2.set_curtain_lifter([&] { ++lifts; inject_key(VK_F24); return true; });   // real one sends Shift + a corner click
     ov2.start(nullptr, [&] {
         fgcp::Snapshot s;
         s.running = true;
@@ -203,6 +204,32 @@ int cmd_live(const wchar_t* shot) {
     Sleep(400);
     check(lifts == 1, "does not keep sending input afterwards");
     ov2.stop();
+
+    printf("curtain lift when Windows refuses the input at first\n");
+    {
+        INPUT in[2] = {};
+        in[0].type = in[1].type = INPUT_KEYBOARD;
+        in[0].ki.wVk = in[1].ki.wVk = VK_F24;
+        in[1].ki.dwFlags = KEYEVENTF_KEYUP;
+        check(fgcp::send_input_on_input_desktop(in, 2), "input sent from a fresh thread on the input desktop");
+    }
+    auto run_lift = [&](int fail_first, int wait_ms, int& tries) {
+        std::atomic<bool> rev{false};
+        std::atomic<int> n{0};
+        fgcp::Overlay o;
+        o.set_curtain_lifter([&] { return ++n > fail_first; });
+        o.start(nullptr, [&] { fgcp::Snapshot s; s.running = s.has_face = s.waiting = true; return s; }, [](bool) {}, true,
+                [&] { rev = true; });
+        Sleep(wait_ms);
+        HWND w = find();
+        bool shown = w && IsWindowVisible(w);
+        o.stop();
+        tries = n;
+        return rev && shown;
+    };
+    int tries = 0;
+    check(run_lift(2, 1500, tries) && tries == 3, "refused twice, third try works: shown only then");
+    check(!run_lift(100, 2800, tries) && tries == 7, "refused every time: stays hidden (key press still works), gives up after 7 tries");
     return g_fail ? 1 : 0;
 }
 
@@ -221,7 +248,7 @@ int cmd_dll(const wchar_t* path) {
     const CLSID clsid = {0xc188dc15, 0xe41e, 0x4ccf, {0x9d, 0xa9, 0x82, 0x38, 0xe1, 0xd0, 0xbb, 0xdf}};
     IClassFactory* cf = nullptr;
     HRESULT hr = get(clsid, IID_IClassFactory, (void**)&cf);
-    check(SUCCEEDED(hr) && cf, "class factory for the FaceGate CLSID");
+    check(SUCCEEDED(hr) && cf, "class factory for the WinFace CLSID");
     if (cf) {
         ICredentialProvider* p = nullptr;
         hr = cf->CreateInstance(nullptr, IID_ICredentialProvider, (void**)&p);
@@ -237,6 +264,60 @@ int cmd_dll(const wchar_t* path) {
     check(!can || can() == S_OK, "unloads cleanly (no leaked references)");
     FreeLibrary(m);
     CoUninitialize();
+    return g_fail ? 1 : 0;
+}
+
+int cmd_camera() {
+    printf("camera classification\n");
+    struct { const wchar_t* name; bool ir; } names[] = {
+        {L"HP FHD Camera", false}, {L"Integrated IR Camera", true}, {L"IR Camera", true}, {L"HP IR Camera", true},
+        {L"Infrared Camera", true}, {L"Intel(R) RealSense(TM) Infrared", true}, {L"TOSHIBA Web Camera - HD", false},
+        {L"TrueVision HD", false}, {L"Integrated Camera", false}, {L"Iriun Webcam", false}, {L"HD User Facing", false}};
+    for (auto& n : names) {
+        char b[160];
+        snprintf(b, sizeof b, "%-34ls -> %s", n.name, n.ir ? "infrared (skipped)" : "colour");
+        check(fg::is_infrared_camera(n.name) == n.ir, b);
+    }
+    struct { const wchar_t* link; bool hw; } links[] = {
+        {L"\\\\?\\usb#vid_0408&pid_5496&mi_00#8&5d2c#{e5323777}", true}, {L"\\\\?\\display#int3474#4&1a2b#{e5323777}", true},
+        {L"\\\\?\\acpi#int33be#1#{e5323777}", true}, {L"\\\\?\\pci#ven_8086&dev_a75d#3&11#{e5323777}", true},
+        {L"\\\\?\\swd#vcamdevapi#aab2#{e5323777}", false}, {L"\\\\?\\root#image#0000#{e5323777}", false}};
+    for (auto& l : links) {
+        char b[160];
+        snprintf(b, sizeof b, "%-44.44ls -> %s", l.link, l.hw ? "real camera" : "virtual (refused)");
+        check(fg::is_hardware_camera(l.link) == l.hw, b);
+    }
+
+    printf("open the camera automatically (like a new PC with no camera chosen)\n");
+    fg::Camera cam(L"");
+    bool ok = cam.open();
+    check(ok, ok ? "opened" : ("open failed: " + cam.error()).c_str());
+    if (!ok) return 1;
+    printf("    %ls, %s, first frame after %.0f ms\n", cam.info().name.c_str(), cam.info().format.c_str(), cam.open_ms());
+    fg::Image img;
+    uint64_t seq = 0;
+    double ts = 0, t0 = 0, t1 = 0;
+    int frames = 0;
+    for (int i = 0; i < 40 && frames < 30; ++i)
+        if (cam.next(img, seq, ts, 500)) { if (!frames) t0 = ts; t1 = ts; ++frames; }
+    cam.close();
+    double fps = frames > 1 && t1 > t0 ? (frames - 1) * 1000.0 / (t1 - t0) : 0;
+    char b[120];
+    snprintf(b, sizeof b, "frames are 1280x720 colour (%dx%d, %d frames, %.0f fps)", img.w, img.h, frames, fps);
+    check(img.w == 1280 && img.h == 720 && frames >= 20, b);
+
+    printf("a size this camera does not offer (the path a camera without 1280x720 takes)\n");
+    fg::Camera cam2(L"");
+    ok = cam2.open(960, 540, 30);
+    check(ok, ok ? "opened" : ("open failed: " + cam2.error()).c_str());
+    if (ok) {
+        printf("    device format %s\n", cam2.info().format.c_str());
+        frames = 0;
+        for (int i = 0; i < 20 && frames < 10; ++i) if (cam2.next(img, seq = 0, ts, 500)) ++frames;
+        snprintf(b, sizeof b, "scaled frames arrive at the requested size (%dx%d)", img.w, img.h);
+        check(img.w == 960 && img.h == 540 && frames >= 5, b);
+    }
+    cam2.close();
     return g_fail ? 1 : 0;
 }
 
@@ -281,8 +362,9 @@ int wmain(int argc, wchar_t** argv) {
     else if (cmd == L"live") rc = cmd_live(argc > 2 ? argv[2] : nullptr);
     else if (cmd == L"dll" && argc > 2) rc = cmd_dll(argv[2]);
     else if (cmd == L"wav" && argc > 2) rc = cmd_wav(argv[2]);
+    else if (cmd == L"camera") rc = cmd_camera();
     else if (cmd == L"sound") { fgcp::play_unlock_sound(); rc = 0; }   // then exit at once, like LogonUI after sign-in
-    else printf("usage: fgoverlaytest render <outdir> [backdrop] | live [shot.png] | dll <FaceGateCP.dll> | wav <file.wav>\n");
+    else printf("usage: fgoverlaytest render <outdir> [backdrop] | live [shot.png] | dll <WinFaceCP.dll> | wav <file.wav>\n");
     GdiplusShutdown(tok);
     return rc;
 }

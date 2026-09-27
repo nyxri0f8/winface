@@ -1,4 +1,4 @@
-// FaceGate engine - simple image container (8-bit, interleaved, top-down).
+// WinFace engine - simple image container (8-bit, interleaved, top-down).
 #pragma once
 #include <cstdint>
 #include <vector>

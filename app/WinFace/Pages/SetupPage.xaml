@@ -1,0 +1,229 @@
+<UserControl x:Class="WinFace.Pages.SetupPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:WinFace">
+  <Grid Margin="40,26,40,24">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <!-- header + step rail -->
+    <DockPanel>
+      <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+        <Image Source="/winface.png" Width="30" Height="30" />
+        <TextBlock Text="Set up WinFace" Style="{StaticResource H2}" Margin="10,0,0,0" VerticalAlignment="Center" />
+      </StackPanel>
+      <StackPanel x:Name="Rail" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" />
+    </DockPanel>
+
+    <Grid Grid.Row="1" Margin="0,22,0,16">
+      <!-- 0 welcome -->
+      <ScrollViewer x:Name="S0" VerticalScrollBarVisibility="Auto">
+        <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+          <TextBlock Text="Welcome to WinFace" Style="{StaticResource H1}" FontSize="32" />
+          <TextBlock Text="Sign in to Windows by looking at your camera - like Face ID. Setup takes about 5 minutes and guides you through every step."
+                     Style="{StaticResource Sub}" FontSize="15" Margin="0,0,0,20" />
+          <Border Style="{StaticResource Card}" BorderBrush="{StaticResource Good}">
+            <StackPanel>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource Icon}" Text="&#xE72E;" Foreground="{StaticResource Good}" FontSize="20" />
+                <TextBlock Text="Your face and password never leave this PC" Style="{StaticResource H2}" Margin="12,0,0,0" />
+              </StackPanel>
+              <TextBlock Style="{StaticResource Body}" Margin="0,12,0,0" LineHeight="22" xml:space="preserve">•  Nothing is uploaded. WinFace has no account, no cloud, no telemetry and no ads.
+•  Camera images are never saved or shown. Only a face template (numbers) is kept, in
+    C:\ProgramData\WinFace - readable only by administrators.
+•  Your Windows password is encrypted by this PC's TPM chip. Only the lock screen can use it,
+    and the encrypted copy is useless on any other computer.
+•  The only internet use was during installation (the face model from InsightFace).
+•  You can switch face unlock off, or erase everything it stored, at any time from Home.</TextBlock>
+            </StackPanel>
+          </Border>
+          <Border Style="{StaticResource Card}" BorderBrush="{StaticResource Warn}">
+            <StackPanel>
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource Icon}" Text="&#xE7BA;" Foreground="{StaticResource Warn}" FontSize="20" />
+                <TextBlock Text="Warning" Style="{StaticResource H2}" Margin="12,0,0,0" />
+              </StackPanel>
+              <TextBlock Style="{StaticResource Body}" Margin="0,12,0,0" LineHeight="22" xml:space="preserve">•  WinFace is not as secure as Windows Hello: it uses a normal webcam, not an infrared camera.
+    It blocks ordinary photos and videos, but no webcam face unlock can stop every attack -
+    realistic masks, identical twins or close family members might be accepted.
+•  Face unlock is only an extra option. Keep your PIN and password; they always keep working.
+•  Smart App Control must stay off, and your password is stored on this PC (TPM-encrypted).
+•  Free, experimental software provided "as is", without warranty. Use it at your own risk.</TextBlock>
+              <Button Content="Read the full privacy policy and warning" Style="{StaticResource LinkButton}" Margin="0,12,0,0"
+                      HorizontalAlignment="Left" Click="OnPolicy" />
+            </StackPanel>
+          </Border>
+          <Border Background="{StaticResource Surface2}" CornerRadius="10" Padding="16,12" Margin="0,0,0,18">
+            <CheckBox x:Name="Agree" Style="{StaticResource Switch}" Checked="OnAgree" Unchecked="OnAgree">
+              <TextBlock Text="I have read and agree to the privacy policy and the warning" Style="{StaticResource Body}" FontWeight="SemiBold" />
+            </CheckBox>
+          </Border>
+          <TextBlock Text="What happens next" Style="{StaticResource H2}" Margin="0,8,0,8" />
+          <TextBlock Style="{StaticResource Sub}" FontSize="14" LineHeight="22" xml:space="preserve">1.  Check that this PC is ready
+2.  Capture your face (5 head positions)
+3.  Security check: your face must unlock - a photo, a video and another person must not
+4.  Save your Microsoft account / Windows password
+5.  Try it in a real Windows sign-in prompt, without locking the PC
+6.  Turn face unlock on for the lock screen</TextBlock>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- 1 system check -->
+      <ScrollViewer x:Name="S1" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+        <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+          <TextBlock Text="Is this PC ready?" Style="{StaticResource H1}" />
+          <TextBlock Text="Face unlock needs a real camera, the TPM security chip, and Smart App Control switched off." Style="{StaticResource Sub}" Margin="0,0,0,18" />
+          <Border Style="{StaticResource Card}">
+            <StackPanel>
+              <StackPanel x:Name="Checks" />
+              <Button Content="Check again" Click="OnRecheck" HorizontalAlignment="Left" Margin="0,10,0,0" Padding="12,5" FontSize="12.5" />
+            </StackPanel>
+          </Border>
+          <TextBlock x:Name="CheckNote" Style="{StaticResource Sub}" Foreground="{StaticResource Warn}" />
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- 2 face -->
+      <Grid x:Name="S2" Visibility="Collapsed">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="340" />
+        </Grid.ColumnDefinitions>
+        <local:MeshView x:Name="FaceMesh" />
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="24,0,0,0">
+          <TextBlock Text="Your face" Style="{StaticResource H1}" />
+          <TextBlock x:Name="FaceSay" Text="Sit about an arm's length from the camera in normal light, then press Start. You will be asked to turn and tilt your head a little."
+                     Style="{StaticResource Body}" FontSize="16" Margin="0,6,0,0" />
+          <TextBlock x:Name="FaceMsg" Style="{StaticResource Sub}" FontSize="14" Margin="0,8,0,14" />
+          <StackPanel x:Name="PoseList" Margin="0,0,0,16" />
+          <Button x:Name="FaceButton" Content="Start" Style="{StaticResource AccentButton}" HorizontalAlignment="Left" Click="OnFace" />
+          <TextBlock Text="Only landmark dots are shown - never the camera image." Style="{StaticResource Sub}" FontSize="12" Margin="0,12,0,0" />
+        </StackPanel>
+      </Grid>
+
+      <!-- 3 security check -->
+      <Grid x:Name="S3" Visibility="Collapsed">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="430" />
+        </Grid.ColumnDefinitions>
+        <Grid>
+          <local:MeshView x:Name="SecMesh" />
+          <StackPanel VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,6">
+            <TextBlock x:Name="SecArrow" Style="{StaticResource Icon}" FontSize="34" Foreground="{StaticResource Accent}" HorizontalAlignment="Center" />
+            <TextBlock x:Name="SecHint" Style="{StaticResource H2}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+          </StackPanel>
+        </Grid>
+        <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" Margin="24,0,0,0">
+          <StackPanel>
+            <TextBlock Text="Security check" Style="{StaticResource H1}" />
+            <TextBlock Text="Four quick tests. Only your real face should unlock. The first is required; the others show you it cannot be fooled."
+                       Style="{StaticResource Sub}" Margin="0,0,0,14" />
+            <StackPanel x:Name="Tests" />
+            <Border x:Name="SecWarn" Style="{StaticResource Card}" BorderBrush="{StaticResource Bad}" Visibility="Collapsed">
+              <StackPanel>
+                <TextBlock Text="An attack test unlocked" Style="{StaticResource H2}" Foreground="{StaticResource Bad}" />
+                <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,10"
+                           Text="Switch recognition to Strict and repeat the tests. If it still unlocks, do not turn face unlock on for this PC." />
+                <Button Content="Use Strict and retest" Click="OnStrict" HorizontalAlignment="Left" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
+
+      <!-- 4 password -->
+      <ScrollViewer x:Name="S4" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+        <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+          <TextBlock Text="Your Windows password" Style="{StaticResource H1}" />
+          <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,18"
+                     Text="After your face is recognised, Windows still needs your account password to sign you in. Enter your Microsoft account password (the one for your email login) - not your PIN." />
+          <Border Style="{StaticResource Card}">
+            <StackPanel>
+              <StackPanel x:Name="PwSaved" Orientation="Horizontal" Margin="0,0,0,14" Visibility="Collapsed">
+                <TextBlock Style="{StaticResource Icon}" Text="&#xE73E;" Foreground="{StaticResource Good}" />
+                <TextBlock x:Name="PwSavedText" Text="A password is already saved. You can continue, or update it below." Style="{StaticResource Body}" Margin="10,0,0,0" />
+              </StackPanel>
+              <TextBlock Text="Password" Style="{StaticResource Sub}" Margin="0,0,0,4" />
+              <PasswordBox x:Name="Pw1" Width="340" HorizontalAlignment="Left" />
+              <TextBlock Text="Again" Style="{StaticResource Sub}" Margin="0,12,0,4" />
+              <PasswordBox x:Name="Pw2" Width="340" HorizontalAlignment="Left" />
+              <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                <Button x:Name="PwButton" Content="Save password" Style="{StaticResource AccentButton}" Click="OnPassword" />
+                <TextBlock x:Name="PwText" Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="14,0,0,0" />
+              </StackPanel>
+              <TextBlock Style="{StaticResource Sub}" FontSize="12" Margin="0,14,0,0"
+                         Text="Windows checks the password before anything is saved. It is then encrypted by the TPM chip and stored only on this PC. It is never shown, logged or uploaded." />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- 5 try it -->
+      <ScrollViewer x:Name="S5" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+        <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+          <TextBlock Text="Try it" Style="{StaticResource H1}" />
+          <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,18"
+                     Text="Before touching the lock screen, try the whole thing in a real Windows sign-in prompt. Nothing gets locked." />
+          <Border Style="{StaticResource Card}">
+            <StackPanel>
+              <TextBlock Style="{StaticResource Body}" LineHeight="22" xml:space="preserve">1.  Click "Open test prompt". A "Windows Security" window appears.
+2.  If needed, choose "Face unlock" (More choices).
+3.  Look at the camera and turn your head when asked.</TextBlock>
+              <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                <Button x:Name="TryButton" Content="Open test prompt" Style="{StaticResource AccentButton}" Click="OnTry" />
+                <TextBlock x:Name="TryText" Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="14,0,0,0" TextWrapping="Wrap" MaxWidth="480" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- 6 turn on -->
+      <ScrollViewer x:Name="S6" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+        <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+          <TextBlock Text="Turn on face unlock" Style="{StaticResource H1}" />
+          <TextBlock Style="{StaticResource Sub}" Margin="0,0,0,18"
+                     Text="Face unlock becomes one of your sign-in options on the lock screen. Your PIN and password keep working as always." />
+          <Border Style="{StaticResource Card}">
+            <StackPanel>
+              <StackPanel Orientation="Horizontal">
+                <Button x:Name="OnButton" Content="Turn on for the lock screen" Style="{StaticResource AccentButton}" Click="OnTurnOn" />
+                <TextBlock x:Name="OnText" Style="{StaticResource Sub}" VerticalAlignment="Center" Margin="14,0,0,0" />
+              </StackPanel>
+              <TextBlock Style="{StaticResource Sub}" FontSize="12" Margin="0,14,0,0"
+                         Text="Restart once after the first installation, so the lock screen loads the new component." />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- 7 done -->
+      <ScrollViewer x:Name="S7" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+        <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+          <TextBlock Text="You're all set" Style="{StaticResource H1}" FontSize="32" />
+          <TextBlock x:Name="DoneSub" Style="{StaticResource Sub}" FontSize="15" Margin="0,0,0,20" />
+          <Border Style="{StaticResource Card}">
+            <TextBlock Style="{StaticResource Body}" LineHeight="24" xml:space="preserve">•  Lock your PC with Win + L, or close the lid. Just look at the camera: the lock screen lifts,
+    you turn your head slightly when asked, and you are in - with a sound.
+•  To switch face unlock off: Home › Off.
+•  To remove everything WinFace stored (faces, password, logs, settings): Home › Erase all face data.
+•  Changed your Windows password? Update it on the Password page.</TextBlock>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+
+    <!-- footer -->
+    <DockPanel Grid.Row="2">
+      <Button x:Name="SkipButton" DockPanel.Dock="Left" Content="Finish later" Style="{StaticResource LinkButton}" Click="OnSkip" VerticalAlignment="Center" />
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+        <Button x:Name="BackButton" Content="Back" Click="OnBack" Margin="0,0,8,0" />
+        <Button x:Name="NextButton" Content="Start setup" Style="{StaticResource AccentButton}" Click="OnNext" MinWidth="120" />
+      </StackPanel>
+    </DockPanel>
+  </Grid>
+</UserControl>

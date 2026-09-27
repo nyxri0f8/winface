@@ -18,7 +18,7 @@
 namespace fgcp {
 namespace {
 
-const wchar_t* kKeyName = L"FaceGatePasswordKey";
+const wchar_t* kKeyName = L"WinFacePasswordKey";
 
 std::wstring hr_msg(const wchar_t* what, SECURITY_STATUS s) {
     wchar_t b[128];
@@ -132,16 +132,52 @@ bool tpm_load(SecurePassword& out, std::wstring& err) {
     return true;
 }
 
+static std::wstring current_key_name() {
+    std::vector<BYTE> file;
+    if (!read_file(data_dir() + L"\\secret.tpm", file) || file.size() < 8) return L"";
+    uint32_t nlen = 0;
+    memcpy(&nlen, file.data(), 4);
+    if (nlen == 0 || nlen > 60 || file.size() < 4 + nlen * sizeof(wchar_t)) return L"";
+    return std::wstring((const wchar_t*)(file.data() + 4), nlen);
+}
+
+int tpm_delete_keys(bool keep_current, int* deleted) {
+    std::wstring keep = keep_current ? current_key_name() : L"";
+    NCRYPT_PROV_HANDLE prov = 0;
+    if (NCryptOpenStorageProvider(&prov, MS_PLATFORM_CRYPTO_PROVIDER, 0) != ERROR_SUCCESS) return 0;
+    std::vector<std::wstring> names;
+    NCryptKeyName* kn = nullptr;
+    PVOID state = nullptr;
+    while (NCryptEnumKeys(prov, nullptr, &kn, &state, NCRYPT_MACHINE_KEY_FLAG | NCRYPT_SILENT_FLAG) == ERROR_SUCCESS) {
+        // WinFace keys, plus keys saved before the product was renamed (FaceGate)
+        bool ours = wcsncmp(kn->pszName, kKeyName, wcslen(kKeyName)) == 0 || wcsncmp(kn->pszName, L"FaceGatePasswordKey", 19) == 0;
+        if (ours && keep != kn->pszName) names.push_back(kn->pszName);
+        NCryptFreeBuffer(kn);
+    }
+    if (state) NCryptFreeBuffer(state);
+    int gone = 0, left = 0;
+    for (auto& n : names) {
+        NCRYPT_KEY_HANDLE key = 0;
+        bool ok = NCryptOpenKey(prov, &key, n.c_str(), 0, NCRYPT_MACHINE_KEY_FLAG | NCRYPT_SILENT_FLAG) == ERROR_SUCCESS &&
+                  NCryptDeleteKey(key, 0) == ERROR_SUCCESS;   // frees the handle on success
+        if (!ok && key) NCryptFreeObject(key);
+        ++(ok ? gone : left);
+    }
+    NCryptFreeObject(prov);
+    if (deleted) *deleted = gone;
+    return left;
+}
+
 static std::wstring dpapi_path() {
     wchar_t* p = nullptr;
     std::wstring r;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &p))) { r = std::wstring(p) + L"\\FaceGate"; CoTaskMemFree(p); }
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &p))) { r = std::wstring(p) + L"\\WinFace"; CoTaskMemFree(p); }
     return r;
 }
 
 bool dpapi_store(const std::wstring& pw, std::wstring& err) {
     DATA_BLOB in{DWORD(pw.size() * sizeof(wchar_t)), (BYTE*)pw.c_str()}, outb{};
-    if (!CryptProtectData(&in, L"FaceGate test", nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &outb)) { err = L"CryptProtectData failed"; return false; }
+    if (!CryptProtectData(&in, L"WinFace test", nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &outb)) { err = L"CryptProtectData failed"; return false; }
     std::vector<BYTE> blob(outb.pbData, outb.pbData + outb.cbData);
     LocalFree(outb.pbData);
     std::wstring dir = dpapi_path();
@@ -159,6 +195,15 @@ bool dpapi_load(SecurePassword& out, std::wstring& err) {
     SecureZeroMemory(outb.pbData, outb.cbData);
     LocalFree(outb.pbData);
     return true;
+}
+
+void erase_password_files() {
+    std::wstring t = data_dir() + L"\\secret.tpm", d = dpapi_path() + L"\\secret.dpapi";
+    DeleteFileW(t.c_str());
+    if (!dpapi_path().empty()) {
+        DeleteFileW(d.c_str());
+        RemoveDirectoryW(dpapi_path().c_str());
+    }
 }
 
 }  // namespace fgcp

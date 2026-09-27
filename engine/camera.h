@@ -1,4 +1,4 @@
-// FaceGate engine - webcam capture via Media Foundation (no OpenCV).
+// WinFace engine - webcam capture via Media Foundation (no OpenCV).
 // Only the whitelisted built-in camera is accepted; virtual / software cameras are refused.
 #pragma once
 #include <atomic>
@@ -17,17 +17,21 @@ namespace fg {
 
 struct CameraInfo {
     std::wstring name;
+    std::string format;     // e.g. "1280x720 @30 fps" or "1920x1080 @30 fps (scaled)"
     std::wstring symlink;   // e.g. \\?\usb#vid_0408&pid_5496&mi_00#...
 };
 
-// all video capture devices; `hardware` = real USB camera (virtual cameras are never usable for unlock)
-struct CameraEntry { std::wstring name, symlink; bool hardware; };
+// all video capture devices; `hardware` = a real camera on a hardware bus (virtual cameras are never usable),
+// `infrared` = a Windows Hello IR sensor (grey-scale; cannot be used by the colour face models)
+struct CameraEntry { std::wstring name, symlink; bool hardware, infrared; };
+bool is_hardware_camera(const std::wstring& symlink);
+bool is_infrared_camera(const std::wstring& friendly_name);
 std::vector<CameraEntry> list_cameras();
 
 class Camera {
 public:
     // `allowed_prefix`: lower-case substring the device symbolic link must contain
-    // (e.g. L"usb#vid_0408&pid_5496&mi_00"). Empty = first *hardware* USB camera.
+    // (e.g. L"usb#vid_0408&pid_5496&mi_00"). Empty = automatic: the first real colour camera that works.
     explicit Camera(const std::wstring& allowed_prefix);
     ~Camera();
 

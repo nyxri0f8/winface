@@ -1,4 +1,4 @@
-// FaceGate CP - minimal Face ID-style HUD at the top of the lock screen (a vector glyph only, never camera pixels).
+// WinFace CP - minimal Face ID-style HUD at the top of the lock screen (a vector glyph only, never camera pixels).
 // Also watches the display power state so the scan restarts when the lid opens / screen wakes.
 // On the lock/sign-in screen it stays hidden behind the Windows curtain (the camera still scans). The curtain lifts
 // when the user presses a key / clicks, or - like Windows Hello - by itself as soon as the camera recognises an
@@ -51,8 +51,8 @@ public:
     void reset();                 // new scan: clear result, fade in again (thread-safe)
     bool revealed() const { return revealed_; }   // false while waiting behind the lock-screen curtain
     // how the curtain is lifted when a face is recognised (default: a Shift tap + a click in the empty top-left
-    // corner, sent from the sign-in desktop). Replaceable for tests.
-    void set_curtain_lifter(std::function<void()> fn) { lift_ = std::move(fn); }
+    // corner, sent from the input desktop). Returns false if Windows refused it. Replaceable for tests.
+    void set_curtain_lifter(std::function<bool()> fn) { lift_ = std::move(fn); }
 
 private:
     void run(HWND parent);
@@ -65,8 +65,9 @@ private:
     Source src_;
     DisplayCb on_display_;
     RevealCb on_reveal_;
-    std::function<void()> lift_;
-    bool lift_tried_ = false;         // one automatic lift per curtain (overlay thread only)
+    std::function<bool()> lift_;
+    int lift_tries_ = 0;              // automatic lift attempts for this curtain (overlay thread only)
+    double lift_next_ = 0;
     std::thread th_;
     std::atomic<HWND> hwnd_{nullptr};
     std::atomic<DWORD> tid_{0};
@@ -84,5 +85,8 @@ private:
 
 // plays assets\sfx_unlock.wav to the end - in fgsound.exe, which outlives LogonUI (it exits right after sign-in)
 void play_unlock_sound();
+
+// SendInput from a fresh thread attached to the desktop currently receiving input (e.g. the secure sign-in desktop)
+bool send_input_on_input_desktop(INPUT* in, UINT n);
 
 }  // namespace fgcp

@@ -23,8 +23,8 @@ def main():
 
     show_cam, last_seq, fps, t_prev = True, -1, 0.0, time.perf_counter()
     lit = np.zeros(N_TICKS, bool)
-    cv2.namedWindow("FaceGate - live", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("FaceGate - live", 1280, 720)
+    cv2.namedWindow("WinFace - live", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("WinFace - live", 1280, 720)
 
     while True:
         frame, ts, seq = cam.read()
@@ -63,10 +63,10 @@ def main():
         out = compose(frame if show_cam else np.zeros_like(frame), layer)
         hud(out, [f"FPS {fps:4.1f}   track {track_ms:4.1f} ms   faces {len(faces)}"] + lines
             + ["q quit | m camera on/off | r reset ring | s screenshot"])
-        cv2.imshow("FaceGate - live", out)
+        cv2.imshow("WinFace - live", out)
 
         k = cv2.waitKey(1) & 0xFF
-        if k in (ord("q"), 27) or cv2.getWindowProperty("FaceGate - live", cv2.WND_PROP_VISIBLE) < 1:
+        if k in (ord("q"), 27) or cv2.getWindowProperty("WinFace - live", cv2.WND_PROP_VISIBLE) < 1:
             break
         if k == ord("m"):
             show_cam = not show_cam

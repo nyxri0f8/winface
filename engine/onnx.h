@@ -1,4 +1,4 @@
-// FaceGate engine - thin ONNX Runtime wrapper (CPU only, for battery).
+// WinFace engine - thin ONNX Runtime wrapper (CPU only, for battery).
 #pragma once
 #include <memory>
 #include <string>

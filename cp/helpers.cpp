@@ -105,7 +105,7 @@ HRESULT build_serialization(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, bool local_
     }
     if (SUCCEEDED(hr)) {
         out->ulAuthenticationPackage = pkg;
-        out->clsidCredentialProvider = CLSID_FaceGateProvider;
+        out->clsidCredentialProvider = CLSID_WinFaceProvider;
     }
     return hr;
 }

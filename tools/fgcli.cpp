@@ -1,4 +1,4 @@
-// FaceGate test CLI.
+// WinFace test CLI.
 //   fgcli selftest            compare the C++ engine with the Python reference (testvec/)
 //   fgcli unlock              real cold-start unlock with the webcam, printed timeline
 #include <windows.h>

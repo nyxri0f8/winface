@@ -1,4 +1,4 @@
-// Opens the standard "Windows Security" credential prompt. With `fgsetup mode test`, the FaceGate tile appears
+// Opens the standard "Windows Security" credential prompt. With `fgsetup mode test`, the WinFace tile appears
 // here (and ONLY here), so the whole face -> password -> Windows logon path can be tested without touching
 // the lock screen. The password is verified with LogonUser and never printed.
 #include <windows.h>
@@ -12,7 +12,7 @@
 int wmain() {
     setvbuf(stdout, nullptr, _IONBF, 0);
     CREDUI_INFOW ui{sizeof ui};
-    ui.pszCaptionText = L"FaceGate test";
+    ui.pszCaptionText = L"WinFace test";
     ui.pszMessageText = L"Choose 'Face unlock' and look at the camera.";
     ULONG pkg = 0;
     void* out = nullptr;

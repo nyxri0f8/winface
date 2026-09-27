@@ -1,4 +1,4 @@
-// FaceGate engine - MediaPipe Face Landmarker re-implemented on ONNX (port of bench/fg/mp_onnx.py).
+// WinFace engine - MediaPipe Face Landmarker re-implemented on ONNX (port of bench/fg/mp_onnx.py).
 #pragma once
 #include <array>
 #include <optional>

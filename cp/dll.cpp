@@ -1,8 +1,8 @@
-// FaceGate CP - DLL entry points, class factory, and safe loading of our own onnxruntime.dll.
+// WinFace CP - DLL entry points, class factory, and safe loading of our own onnxruntime.dll.
 #include <windows.h>
 #include <initguid.h>
 
-#include "common.h"   // defines CLSID_FaceGateProvider + credential provider GUIDs here (initguid)
+#include "common.h"   // defines CLSID_WinFaceProvider + credential provider GUIDs here (initguid)
 #include <propkey.h>  // storage for PKEY_Identity_QualifiedUserName
 #include <delayimp.h>
 
@@ -57,7 +57,7 @@ STDAPI DllCanUnloadNow() { return g_dll_refs > 0 ? S_FALSE : S_OK; }
 
 STDAPI DllGetClassObject(REFCLSID clsid, REFIID riid, void** ppv) {
     *ppv = nullptr;
-    if (clsid != CLSID_FaceGateProvider) return CLASS_E_CLASSNOTAVAILABLE;
+    if (clsid != CLSID_WinFaceProvider) return CLASS_E_CLASSNOTAVAILABLE;
     auto* f = new (std::nothrow) Factory();
     if (!f) return E_OUTOFMEMORY;
     HRESULT hr = f->QueryInterface(riid, ppv);

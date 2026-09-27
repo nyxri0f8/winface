@@ -1,4 +1,4 @@
-// FaceGate engine - Media Foundation camera. MJPG 720p from the device, decoded to RGB32 by MF,
+// WinFace engine - Media Foundation camera. MJPG 720p from the device, decoded to RGB32 by MF,
 // converted to mirrored BGR (same convention as the Python bench, so yaw signs match).
 #include "camera.h"
 
@@ -10,6 +10,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cwctype>
 
 #pragma comment(lib, "mfplat.lib")
@@ -40,6 +42,35 @@ std::wstring get_string(IMFActivate* a, const GUID& key) {
     return out;
 }
 
+bool has_word(const std::wstring& s, const std::wstring& w) {   // whole word, case already lowered
+    for (size_t p = s.find(w); p != std::wstring::npos; p = s.find(w, p + 1)) {
+        bool l = p == 0 || !std::iswalnum(s[p - 1]), r = p + w.size() >= s.size() || !std::iswalnum(s[p + w.size()]);
+        if (l && r) return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+// Real cameras sit on a hardware bus: USB webcams, and built-in cameras wired over PCI / ACPI / MIPI (Intel IPU,
+// Surface, many new laptops show up as display#/acpi#). Virtual cameras (OBS, phone links, the Windows virtual
+// camera API) are software devices with swd#/root# links and are never accepted.
+bool is_hardware_camera(const std::wstring& link) {
+    std::wstring l = lower(link);
+    for (const wchar_t* p : {L"\\\\?\\usb#", L"\\\\?\\pci#", L"\\\\?\\acpi#", L"\\\\?\\display#"})
+        if (l.rfind(p, 0) == 0) return true;
+    return false;
+}
+
+// Windows Hello laptops often list their infrared sensor as a second camera. It sees in grey-scale infrared, which
+// the colour face models cannot use, so it is never picked automatically.
+bool is_infrared_camera(const std::wstring& name) {
+    std::wstring n = lower(name);
+    return has_word(n, L"ir") || n.find(L"infrared") != std::wstring::npos;
+}
+
+namespace {
+
 }  // namespace
 
 std::vector<CameraEntry> list_cameras() {
@@ -54,7 +85,8 @@ std::vector<CameraEntry> list_cameras() {
         if (SUCCEEDED(MFEnumDeviceSources(attr, &devs, &n))) {
             for (UINT32 i = 0; i < n; ++i) {
                 std::wstring link = lower(get_string(devs[i], MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK));
-                out.push_back({get_string(devs[i], MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME), link, link.rfind(L"\\\\?\\usb#", 0) == 0});
+                std::wstring name = get_string(devs[i], MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME);
+                out.push_back({name, link, is_hardware_camera(link), is_infrared_camera(name)});
                 devs[i]->Release();
             }
             CoTaskMemFree(devs);
@@ -77,7 +109,7 @@ bool Camera::open(int width, int height, int fps) {
     if (FAILED(MFStartup(MF_VERSION, MFSTARTUP_LITE))) { err_ = "MFStartup failed"; return false; }
     mf_started_ = true;
 
-    // 1. find the whitelisted camera
+    // 1. candidate cameras: the one chosen in Settings, or (automatic) every real colour camera, in order
     IMFAttributes* attr = nullptr;
     MFCreateAttributes(&attr, 1);
     attr->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
@@ -86,58 +118,100 @@ bool Camera::open(int width, int height, int fps) {
     HRESULT hr = MFEnumDeviceSources(attr, &devs, &count);
     release(attr);
     if (FAILED(hr)) { err_ = "MFEnumDeviceSources failed"; return false; }
+    std::vector<IMFActivate*> cands;
+    int n_hw = 0, n_ir = 0;
     for (UINT32 i = 0; i < count; ++i) {
         std::wstring link = lower(get_string(devs[i], MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK));
-        // hardware USB cameras only: virtual cameras use swd#/root# style links
-        bool hw = link.rfind(L"\\\\?\\usb#", 0) == 0;
-        bool ok = hw && (allowed_.empty() || link.find(allowed_) != std::wstring::npos);
-        if (ok && !source_ && SUCCEEDED(devs[i]->ActivateObject(IID_PPV_ARGS(&source_)))) {
-            info_.name = get_string(devs[i], MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME);
-            info_.symlink = link;
-        }
+        std::wstring name = get_string(devs[i], MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME);
+        bool hw = is_hardware_camera(link), ir = is_infrared_camera(name);
+        n_hw += hw;
+        n_ir += hw && ir;
+        bool ok = allowed_.empty() ? hw && !ir : hw && link.find(allowed_) != std::wstring::npos;
+        if (ok) { devs[i]->AddRef(); cands.push_back(devs[i]); }
         devs[i]->Release();
     }
     CoTaskMemFree(devs);
-    if (!source_) { err_ = "whitelisted camera not found"; return false; }
-
-    // 2. source reader with MF's built-in MJPG decoder + colour converter
-    MFCreateAttributes(&attr, 2);
-    attr->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
-    attr->SetUINT32(MF_READWRITE_DISABLE_CONVERTERS, FALSE);
-    hr = MFCreateSourceReaderFromMediaSource(source_, attr, &reader_);
-    release(attr);
-    if (FAILED(hr)) { err_ = "MFCreateSourceReaderFromMediaSource failed"; return false; }
-    const DWORD stream = (DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM;
-
-    // 3. pick the device format: MJPG at the requested size (fast USB path), else anything at that size
-    IMFMediaType* best = nullptr;
-    int best_rank = -1;
-    for (DWORD i = 0;; ++i) {
-        IMFMediaType* t = nullptr;
-        if (FAILED(reader_->GetNativeMediaType(stream, i, &t))) break;
-        GUID sub{};
-        UINT32 w = 0, h = 0, num = 0, den = 1;
-        t->GetGUID(MF_MT_SUBTYPE, &sub);
-        MFGetAttributeSize(t, MF_MT_FRAME_SIZE, &w, &h);
-        MFGetAttributeRatio(t, MF_MT_FRAME_RATE, &num, &den);
-        int rank = -1;
-        if ((int)w == width && (int)h == height && den && num / den >= (UINT32)fps)
-            rank = (sub == MFVideoFormat_MJPG) ? 2 : 1;
-        if (rank > best_rank) { release(best); best = t; best_rank = rank; } else t->Release();
+    if (cands.empty()) {
+        err_ = !allowed_.empty() ? "the camera chosen in WinFace Settings is not connected - pick another one there"
+             : n_hw == 0     ? "no camera found (virtual cameras cannot be used)"
+             : n_ir == n_hw  ? "only an infrared camera was found - face unlock needs a normal colour camera"
+                             : "no usable camera found";
+        return false;
     }
-    if (!best) { err_ = "no usable camera format"; return false; }
-    hr = reader_->SetCurrentMediaType(stream, nullptr, best);
-    release(best);
-    if (FAILED(hr)) { err_ = "set device format failed"; return false; }
 
-    IMFMediaType* out = nullptr;
-    MFCreateMediaType(&out);
-    out->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-    out->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
-    MFSetAttributeSize(out, MF_MT_FRAME_SIZE, width, height);
-    hr = reader_->SetCurrentMediaType(stream, nullptr, out);
-    release(out);
-    if (FAILED(hr)) { err_ = "set RGB32 output failed"; return false; }
+    // 2. open the first candidate that delivers a usable colour format
+    const DWORD stream = (DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM;
+    auto try_device = [&](IMFActivate* dev) -> bool {
+        if (FAILED(dev->ActivateObject(IID_PPV_ARGS(&source_)))) { err_ = "camera busy or blocked (privacy settings?)"; return false; }
+        // advanced processing: MJPG/YUY2/NV12 decode + colour conversion + resizing to width x height
+        MFCreateAttributes(&attr, 2);
+        attr->SetUINT32(MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, TRUE);
+        attr->SetUINT32(MF_READWRITE_DISABLE_CONVERTERS, FALSE);
+        hr = MFCreateSourceReaderFromMediaSource(source_, attr, &reader_);
+        release(attr);
+        if (FAILED(hr)) { err_ = "MFCreateSourceReaderFromMediaSource failed"; return false; }
+
+        // device format: exactly width x height (MJPG first - the fast USB path), else the best other colour
+        // format at >= 640 px wide, preferring the same (16:9) shape, which is then scaled
+        IMFMediaType* best = nullptr;
+        int best_rank = -1;
+        std::string best_desc;
+        for (DWORD i = 0;; ++i) {
+            IMFMediaType* t = nullptr;
+            if (FAILED(reader_->GetNativeMediaType(stream, i, &t))) break;
+            GUID sub{};
+            UINT32 w = 0, h = 0, num = 0, den = 1;
+            t->GetGUID(MF_MT_SUBTYPE, &sub);
+            MFGetAttributeSize(t, MF_MT_FRAME_SIZE, &w, &h);
+            MFGetAttributeRatio(t, MF_MT_FRAME_RATE, &num, &den);
+            double f = den ? double(num) / den : 0;
+            bool colour = sub == MFVideoFormat_MJPG || sub == MFVideoFormat_YUY2 || sub == MFVideoFormat_NV12 ||
+                          sub == MFVideoFormat_RGB24 || sub == MFVideoFormat_RGB32 || sub == MFVideoFormat_I420;
+            bool same_shape = std::abs(int(w) * height - int(h) * width) <= int(h) * 16 / 100;   // within ~1 %
+            int rank = -1;
+            if (colour && (int)w == width && (int)h == height && f >= fps - 0.5) rank = sub == MFVideoFormat_MJPG ? 1000 : 900;
+            else if (colour && w >= 640 && f >= 14.5)
+                rank = (same_shape ? 500 : 100) + std::min<int>(w, 1920) / 20 + (f >= 29.5 ? 10 : 0);
+            if (rank > best_rank) {
+                release(best);
+                best = t;
+                best_rank = rank;
+                char d[80];
+                snprintf(d, sizeof d, "%ux%u @%.0f fps%s", w, h, f, rank >= 900 ? "" : same_shape ? " (scaled)" : " (scaled, reshaped)");
+                best_desc = d;
+            } else {
+                t->Release();
+            }
+        }
+        if (!best) { err_ = "the camera offers no usable colour video format"; return false; }
+        hr = reader_->SetCurrentMediaType(stream, nullptr, best);
+        release(best);
+        if (FAILED(hr)) { err_ = "set device format failed"; return false; }
+        IMFMediaType* out = nullptr;
+        MFCreateMediaType(&out);
+        out->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+        out->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+        MFSetAttributeSize(out, MF_MT_FRAME_SIZE, width, height);
+        hr = reader_->SetCurrentMediaType(stream, nullptr, out);
+        release(out);
+        if (FAILED(hr)) { err_ = "set RGB32 output failed"; return false; }
+        info_.name = get_string(dev, MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME);
+        info_.symlink = lower(get_string(dev, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK));
+        info_.format = best_desc;
+        return true;
+    };
+    bool opened = false;
+    for (IMFActivate* dev : cands) {
+        if (!opened) {
+            opened = try_device(dev);
+            if (!opened) {   // give the next camera a clean start
+                release(reader_);
+                if (source_) { source_->Shutdown(); release(source_); }
+            }
+        }
+        dev->Release();
+    }
+    if (!opened) return false;
 
     IMFMediaType* cur = nullptr;
     reader_->GetCurrentMediaType(stream, &cur);

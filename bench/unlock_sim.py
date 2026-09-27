@@ -1,4 +1,4 @@
-"""Simulate one lock-screen unlock from a COLD start, the way FaceGate will run with no background process:
+"""Simulate one lock-screen unlock from a COLD start, the way WinFace will run with no background process:
 process starts -> camera + models load in parallel -> match -> release everything -> exit.
 
 Prints a timeline and the CPU time used (battery cost).  Usage: python unlock_sim.py [threshold]

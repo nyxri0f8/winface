@@ -1,18 +1,18 @@
 <p align="center">
-  <img src="assets/banner.jpg" alt="FaceGate Banner" width="100%">
+  <img src="assets/banner.jpg" alt="WinFace Banner" width="100%">
 </p>
 
-# FaceGate (winface)
+# WinFace
 
 Biometric Face Unlock Credential Provider for Windows 10 and 11.
 
-FaceGate provides fast, secure facial recognition logon for standard RGB webcams without requiring proprietary infrared (IR) sensors. It integrates natively into Windows `LogonUI.exe` using a custom C++20 Credential Provider, backed by hardware TPM 2.0 key isolation, on-device neural network inference, and multi-layered anti-spoofing based on 3D geometric parallax.
+WinFace provides fast, secure facial recognition logon for standard RGB webcams without requiring proprietary infrared (IR) sensors. It integrates natively into Windows `LogonUI.exe` using a custom C++20 Credential Provider, backed by hardware TPM 2.0 key isolation, on-device neural network inference, and multi-layered anti-spoofing based on 3D geometric parallax.
 
 ---
 
 > **IMPORTANT WARNING AND SAFETY GUARANTEE**
 >
-> FaceGate **never** hides, modifies, or disables your standard Windows PIN or password tiles.
+> WinFace **never** hides, modifies, or disables your standard Windows PIN or password tiles.
 > If facial verification fails, times out, or the camera is unavailable, you can always click **Sign-in options** on the lock screen and enter your PIN or password as usual.
 >
 > A complete, offline emergency recovery procedure is included in this repository and installed alongside the binaries in `RECOVERY.md`.
@@ -32,7 +32,11 @@ FaceGate provides fast, secure facial recognition logon for standard RGB webcams
 - [System Architecture Diagram](#system-architecture-diagram)
 - [Verification & Anti-Spoofing Pipeline](#verification--anti-spoofing-pipeline)
 - [Project Layout](#project-layout)
-- [Installation Guide](#installation-guide)
+- [Privacy: Everything Stays on Your PC](#privacy-everything-stays-on-your-pc)
+- [Quick Install (WinFace-Setup.exe)](#quick-install-winface-setupexe)
+- [The WinFace App](#the-winface-app)
+- [Building the Installer](#building-the-installer)
+- [Installation Guide (from source)](#installation--setup-guide-step-by-step)
 - [Command-Line Reference](#command-line-reference)
 - [Configuration Settings](#configuration-settings)
 - [Troubleshooting & Logs](#troubleshooting--logs)
@@ -45,13 +49,13 @@ FaceGate provides fast, secure facial recognition logon for standard RGB webcams
 
 Standard Windows Hello Face requires specialized depth-sensing or infrared cameras (850nm/940nm LEDs). Most consumer laptops and external monitors only feature standard 720p or 1080p RGB webcams.
 
-FaceGate bridges this gap by combining modern computer vision with low-level Windows authentication internals:
+WinFace bridges this gap by combining modern computer vision with low-level Windows authentication internals:
 
 - **Native Credential Provider V2**: Implements `ICredentialProvider`, `ICredentialProviderCredential2`, and `ICredentialProviderSetUserArray` directly in C++20.
 - **In-Process ONNX Inference**: MediaPipe Face Mesh (478 3D landmarks) and ArcFace (512-dimensional embeddings) executed on-device via ONNX Runtime without external runtimes or background daemons.
 - **Hardware Cryptography**: User credentials are encrypted using an RSA-2048 key sealed inside the motherboard's Trusted Platform Module (TPM 2.0).
 - **Direct Winlogon Overlay**: A 32-bit premultiplied alpha layered window attaches directly to the secure Winlogon desktop, rendering a minimal monochrome Face ID-style glyph at ~60 FPS with zero camera pixels displayed or stored: corner brackets frame a simple face that follows your head, two chevrons point the way during the head turn, the brackets morph into a circle with a check mark on success, and the glyph shakes on rejection.
-- **Windows Hello-style Lock Screen Flow**: The camera starts as soon as the lock screen appears, but nothing is drawn over the lock-screen picture (date and time). As soon as the camera recognises an enrolled face, FaceGate lifts the lock screen by itself and the sign-in page appears with the face HUD already asking for the head turn. A key press or click also lifts it, exactly as without FaceGate.
+- **Windows Hello-style Lock Screen Flow**: The camera starts as soon as the lock screen appears, but nothing is drawn over the lock-screen picture (date and time). As soon as the camera recognises an enrolled face, WinFace lifts the lock screen by itself and the sign-in page appears with the face HUD already asking for the head turn. A key press or click also lifts it, exactly as without WinFace.
 - **Unlock Sound**: A single sound plays on a successful unlock (none on scan start or rejection). It is played by a separate helper, `fgsound.exe`, so it is not cut off when `LogonUI.exe` exits right after sign-in.
 
 ---
@@ -59,15 +63,15 @@ FaceGate bridges this gap by combining modern computer vision with low-level Win
 ## Security Architecture & Threat Model
 
 ### 1. Hardware TPM 2.0 Cryptographic Vault
-The Windows password is required by Local Security Authority Subsystem Service (LSASS) to construct an interactive Kerberos or NTLM logon token. Storing credentials insecurely creates a critical vulnerability. FaceGate hardens this storage using the hardware TPM:
+The Windows password is required by Local Security Authority Subsystem Service (LSASS) to construct an interactive Kerberos or NTLM logon token. Storing credentials insecurely creates a critical vulnerability. WinFace hardens this storage using the hardware TPM:
 - A unique RSA-2048 key is created in the TPM via `MS_PLATFORM_CRYPTO_PROVIDER`.
 - When stored, the key's Security Descriptor (DACL) is restricted strictly to Local System (`NT AUTHORITY\SYSTEM`) using the SDDL string `D:P(A;;GA;;;SY)`.
 - **Impact**: Normal programs cannot read or decrypt the stored password, but anything running with admin rights can (an admin can run code as `SYSTEM`). Only `SYSTEM` (such as `LogonUI.exe` on the secure lock screen, or processes elevated to `SYSTEM` by an administrator) can access the private key.
-- The password file (`%ProgramData%\FaceGate\secret.tpm`) is bound to the physical machine's TPM and is cryptographically useless if copied to another machine.
+- The password file (`%ProgramData%\WinFace\secret.tpm`) is bound to the physical machine's TPM and is cryptographically useless if copied to another machine.
 
 ### 2. Zero-IPC In-Process Execution
 Most open-source Windows unlock alternatives run an external background service or Python script communicating over Named Pipes or Localhost HTTP sockets. This introduces a major Local Privilege Escalation (LPE) vector: any process writing an unlock message to the pipe can trigger authentication.
-- FaceGate operates **entirely in-process inside `LogonUI.exe`**.
+- WinFace operates **entirely in-process inside `LogonUI.exe`**.
 - There are **no listening network ports, no RPC endpoints, and no named pipes**.
 - The worker thread and camera handle are spawned on demand when the lock screen wakes and are closed immediately upon unlock or timeout.
 
@@ -84,7 +88,7 @@ Credential serialization cannot be requested arbitrarily:
 - Plaintext passwords are never written to logs, registry values, or temporary disk files.
 
 ### 5. Mathematical 3D Parallax Anti-Spoofing
-Standard 2D face recognition is vulnerable to presentation attacks (photos, tablet screens, printed masks). FaceGate employs a multi-tiered defense:
+Standard 2D face recognition is vulnerable to presentation attacks (photos, tablet screens, printed masks). WinFace employs a multi-tiered defense:
 - **Dual-Model Texture Classification**: Uses two MiniFASNet models (`fas_v1se` and `fas_v2`) on cropped facial patches to detect moire patterns, screen refresh artifacts, and paper textures.
 - **CSPRNG Challenge**: The engine requests a random head turn (LEFT or RIGHT) generated from `BCryptGenRandom`. An attacker playing a pre-recorded video cannot predict the requested direction.
 - **3D Parallax DLT Homography Residual**: When a flat photo or phone screen is rotated in front of a camera, all facial landmarks transform according to a planar projective homography:
@@ -97,11 +101,11 @@ Standard 2D face recognition is vulnerable to presentation attacks (photos, tabl
 
   If $\text{Residual} < 0.025$, the rotation is geometrically flat and rejected as a photo/screen attack.
 - **Identity Continuity During the Turn**: Before the challenge starts, the face must match frontally (3 of the last 5 frames at cosine similarity $\geq 0.42$). During the turn the head pose naturally lowers ArcFace scores, so each frame only has to stay above a floor of $\max(\text{match} - 0.08,\ 0.34)$, with a single motion-blurred frame forgiven. The floor stays above the best stranger in the LFW calibration (0.313), so a different face swapped in mid-turn is still rejected, and the frame that completes the turn must itself pass.
-- **Lock-Screen Lift**: Only a recognised enrolled face lifts the lock screen automatically (FaceGate sends a Shift tap and a click in the empty top-left corner from the sign-in desktop). Lifting it grants nothing: it only shows the same sign-in page a key press would.
+- **Lock-Screen Lift**: Only a recognised enrolled face lifts the lock screen automatically (WinFace sends a Shift tap and a click in the empty top-left corner from the sign-in desktop). Lifting it grants nothing: it only shows the same sign-in page a key press would.
 
 ### 6. Camera Hardware Enforcement
 - Software cameras (OBS Virtual Camera, ManyCam, DroidCam, etc.) create virtual device links such as `swd#` or `root#`.
-- FaceGate enforces `\\?\usb#` hardware prefix validation and matches the configured vendor/product ID (VID/PID). Any virtual or spoofed camera source is refused.
+- WinFace enforces `\\?\usb#` hardware prefix validation and matches the configured vendor/product ID (VID/PID). Any virtual or spoofed camera source is refused.
 
 ---
 
@@ -110,7 +114,7 @@ Standard 2D face recognition is vulnerable to presentation attacks (photos, tabl
 ```mermaid
 flowchart TD
     subgraph LockScreen ["Windows Lock Screen (LogonUI.exe - SYSTEM)"]
-        A[LogonUI / CredUI] --> B[FaceGateCP.dll]
+        A[LogonUI / CredUI] --> B[WinFaceCP.dll]
         B --> C[FaceProvider / FaceCredential]
         C --> D[Worker Scanner Thread]
         C --> E[Winlogon Desktop Overlay HUD]
@@ -194,7 +198,8 @@ flowchart TD
 ## Project Layout
 
 ```
-facegate/
+winface/
+├── PRIVACY.md             # Privacy policy and warning (installer + app ask you to agree)
 ├── CMakeLists.txt         # Build definition (C++20, static CRT, CFG, SDL, DelayLoad)
 ├── cp/                    # Credential Provider (loaded by LogonUI.exe)
 │   ├── common.h / .cpp    # Configuration and shared logging
@@ -217,13 +222,22 @@ facegate/
 ├── tools/                 # Administrative and testing utilities
 │   ├── fgcli.cpp          # Engine self-test against reference test vectors
 │   ├── fgcredtest.cpp     # CredUI prompt test harness (non-destructive)
-│   ├── fgoverlaytest.cpp  # Renders the real HUD to PNGs, live curtain test, DLL/sound checks (dev only)
+│   ├── fgoverlaytest.cpp  # Renders the real HUD to PNGs, live curtain test, DLL/sound/camera checks (dev only)
+│   ├── migratetest.ps1    # Tests the FaceGate -> WinFace data migration on scratch data (dev only)
 │   ├── fgsetup.cpp        # Enrollment, password vaulting, settings CLI
 │   └── fgsound.cpp        # Plays the unlock sound in its own process (outlives LogonUI)
 ├── assets/                # tile.bmp, sfx_unlock.wav (see Credits), banner.jpg
-├── install/               # Installation and recovery scripts
+├── app/WinFace/           # WinFace desktop app (WPF, .NET 8) - drives fgsetup.exe --json
+│   ├── Backend.cs         # Runs fgsetup and streams its JSON lines
+│   ├── SystemInfo.cs      # Smart App Control / TPM / provider / model checks (read-only)
+│   ├── MeshView.cs        # Live landmark view for enrolment and tests (no camera pixels)
+│   └── Pages/             # Home, Faces, Password, Test, Settings, Logs, About
+├── installer/             # WinFace-Setup.exe (Inno Setup 6)
+│   ├── winface.iss        # Installer: SAC check, model download + SHA-256, registration, uninstall
+│   └── build.ps1          # One command: C++ build, app publish, checks, installer
+├── install/               # Developer install and recovery scripts
 │   ├── install.cmd        # Double-click launcher: asks for admin, runs install.ps1
-│   ├── install.ps1        # Admin deployment, registration and post-install verification
+│   ├── install.ps1        # Developer deployment, registration and post-install verification
 │   ├── uninstall.ps1      # Safe removal script
 │   └── RECOVERY.md        # Offline BitLocker and recovery console procedures
 └── bench/                 # Calibration and validation toolset
@@ -233,9 +247,79 @@ facegate/
 
 ---
 
+## Privacy: Everything Stays on Your PC
+
+The full **[Privacy Policy and Warning](PRIVACY.md)** is shown by the installer and on the app's first screen; you have to agree to it to continue. In short:
+
+- **Nothing is uploaded.** WinFace has no account, no cloud service, no telemetry and no ads. It never sends your face, your password or your logs anywhere.
+- **No camera images are stored.** Camera frames are processed in memory and discarded. Only face templates (lists of numbers) are kept, in `C:\ProgramData\WinFace`, a folder only administrators and the lock screen can read. The app shows landmark dots, never the camera picture.
+- **Your password is sealed by the TPM chip.** It is encrypted with a key inside this PC's TPM that only the lock screen (SYSTEM) can use; the encrypted file is useless on any other computer.
+- **Internet is used only during installation**, to download the InsightFace recognition model (and the .NET runtime from Microsoft, if missing).
+- **Warning:** WinFace uses a normal webcam, so it is **not as secure as Windows Hello** with an infrared camera. It blocks ordinary photos and videos, but no webcam face unlock can stop every attack (realistic masks, identical twins, close relatives). Keep your PIN and password; face unlock is only an extra option. Experimental software, provided "as is" without warranty.
+- **You stay in control:** switch face unlock **off** at any time (Home > *Turn face unlock off*), or **erase everything** it stored (Home > *Erase all face data*): faces, the encrypted password and its TPM keys, the log and all settings. Your Windows PIN and password are never affected.
+
+---
+
+## Quick Install (WinFace-Setup.exe)
+
+The easiest way: download **`WinFace-Setup-<version>.exe`** from the [Releases](https://github.com/nyxri0f8/winface/releases/latest) page and run it.
+
+1. **Turn Smart App Control off first** (`Windows Security` > `App & browser control` > `Smart App Control settings` > **Off**). WinFace is not signed with a commercial certificate, so Smart App Control would block the setup itself and the lock-screen component. Windows only lets you switch it back on by resetting or reinstalling Windows.
+2. Run the setup. Windows SmartScreen may say "Windows protected your PC": click **More info** > **Run anyway**. Approve the administrator prompt.
+3. The setup checks Smart App Control again, then shows the **InsightFace licence** page: the face recognition model is for non-commercial use only, so it is not bundled; setup downloads it (about 290 MB) from InsightFace's official GitHub release and verifies its SHA-256 fingerprint. If the .NET 8 Desktop Runtime is missing, it is downloaded from Microsoft and installed too.
+4. When setup finishes, **WinFace** opens with a **setup guide** that walks you through every step on screen:
+   1. **Welcome** - what WinFace does and the privacy promise above.
+   2. **System check** - Smart App Control, TPM 2.0, camera, lock-screen component and models, with a shortcut to fix Smart App Control.
+   3. **Your face** - capture 5 head positions (about 30 seconds).
+   4. **Security check** - four tests: **your face** must unlock; **a photo of you**, **a video of you**, and **another person / you moving around** must all be rejected. If an attack test unlocks, the guide offers Strict recognition and a retest.
+   5. **Password** - your Microsoft account / Windows password (not the PIN), checked with Windows, then sealed by the TPM.
+   6. **Try it** - a real Windows sign-in prompt with the Face unlock tile, without locking the PC.
+   7. **Turn on** - switch face unlock on for the lock screen (restart once after the first install).
+
+   You can leave the guide at any time (*Finish later*) and reopen it from Home > *Open setup guide*.
+
+Requirements: Windows 10 1903+ or Windows 11 (64-bit), TPM 2.0, a real webcam, an internet connection during setup, and an **administrator** Windows account (the account you set up is the one face unlock signs in).
+
+**Updating from FaceGate (the name before v1.0):** the setup moves your enrolled faces, stored password and settings from `C:\ProgramData\FaceGate`, `%LOCALAPPDATA%\FaceGate` and `HKLM\SOFTWARE\FaceGate` to the new WinFace locations, and removes the old `C:\Program Files\FaceGate` folder. Nothing needs to be set up again; restart once afterwards.
+
+Uninstall from `Settings` > `Apps` > **WinFace**. You are asked whether to keep your enrolled faces and stored password for a later reinstall.
+
+---
+
+## The WinFace App
+
+WinFace (Start menu > **WinFace**, runs as administrator) is the control panel for face unlock. It drives `fgsetup.exe --json` and never handles your face data or password itself.
+
+| Page | What it does |
+| :--- | :--- |
+| **Home** | Current state, the Off / Test prompt only / Lock screen switch, a setup checklist and system checks (Smart App Control, lock-screen component, models, TPM 2.0, camera) with a shortcut to Windows Security. **Privacy and your data**: *Turn face unlock off*, *Erase all face data* and *Open setup guide*. |
+| **Faces** | Add, update (re-capture) or delete up to 3 faces. Enrolment guides you through 5 head poses with a live landmark view - only dots, never the camera image. |
+| **Password** | Save or update your Windows password (sent to `fgsetup` over a private pipe, checked with Windows, sealed by the TPM) and check the saved one. |
+| **Test** | The same face check as the lock screen, including the head turn, with live scores. It never signs anyone in. |
+| **Settings** | Camera, strictness, search and head-turn time, allowed failed attempts, unlock sound (with a preview). |
+| **Logs** | Live view of `C:\ProgramData\WinFace\log.txt`, copy, open folder. |
+| **About** | Privacy statement, recovery guide, uninstall, credits and licences. |
+| **Setup guide** | Opens on first launch (and after an erase): the 7 steps above, full screen. |
+
+The lock screen's **Sign-in options** icon for face unlock is the same minimal Face ID-style glyph as the app icon (`assets/tile.bmp`, generated by `bench/make_tile.py`).
+
+---
+
+## Building the Installer
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\installer\build.ps1 -Version 1.0.0
+```
+
+Needs the source prerequisites below (Visual Studio 2022 C++, CMake, the models in `models/runtime`) plus the **.NET 8 SDK** and **Inno Setup 6** (`winget install JRSoftware.InnoSetup`). The script builds the C++ components, publishes the app, runs the engine self-test and the DLL/sound checks, and writes `dist\WinFace-Setup-<version>.exe`.
+
+The setup bundles only redistributable files: the Apache 2.0 models (MediaPipe, MiniFASNet) and MIT ONNX Runtime. The InsightFace `w600k_r50.onnx` model is downloaded during setup. Developer builds may instead use a locally quantized `arcface_int8.onnx` (about twice as fast); the engine uses it automatically when present.
+
+---
+
 ## Installation & Setup Guide (Step-by-Step)
 
-Follow this complete walkthrough to install, compile, configure, and activate FaceGate on your system from top to bottom.
+This section builds and installs WinFace from source without the setup program (for development). Follow this complete walkthrough to install, compile, configure, and activate WinFace on your system from top to bottom.
 
 ---
 
@@ -254,7 +338,7 @@ Before beginning, ensure your PC meets the following hardware and operating syst
      Ensure `TpmPresent: True` and `TpmReady: True`.
    - Alternatively, press `Win + R`, type `tpm.msc`, and verify that the status reports "The TPM is ready for use" (Specification Version: 2.0).
 5. **Windows 11 Smart App Control (SAC)**:
-   - Because FaceGate is compiled locally from source code without an expensive commercial EV Authenticode certificate, Windows 11 **Smart App Control (SAC)** in "On" mode will block unsigned `.dll` binaries from loading into `LogonUI.exe`.
+   - Because WinFace is compiled locally from source code without an expensive commercial EV Authenticode certificate, Windows 11 **Smart App Control (SAC)** in "On" mode will block unsigned `.dll` binaries from loading into `LogonUI.exe`.
    - Ensure Smart App Control is set to **Off** or **Evaluation** mode in:
      `Windows Security` > `App & browser control` > `Smart App Control settings`.
    - If Smart App Control is strictly **On**, it blocks local developer-built binaries from executing. Alternatively, sign the compiled binaries with a local self-signed certificate (see [Troubleshooting](#windows-11-smart-app-control-sac--defender-blocks)).
@@ -263,7 +347,7 @@ Before beginning, ensure your PC meets the following hardware and operating syst
 
 ### Step 2: Software Prerequisites & Toolchain
 
-FaceGate is built using native C++20 and static runtime linkage to ensure zero external dependency when loaded inside `LogonUI.exe`.
+WinFace is built using native C++20 and static runtime linkage to ensure zero external dependency when loaded inside `LogonUI.exe`.
 
 Install the required developer tools:
 
@@ -294,8 +378,8 @@ Install the required developer tools:
 Clone the project to your local workspace:
 
 ```powershell
-git clone https://github.com/nyxri0f8/winface.git $env:USERPROFILE\dev\facegate
-cd $env:USERPROFILE\dev\facegate
+git clone https://github.com/nyxri0f8/winface.git $env:USERPROFILE\dev\winface
+cd $env:USERPROFILE\dev\winface
 ```
 
 ---
@@ -331,12 +415,12 @@ Generate the build system using CMake and compile the release binaries:
 # 1. Configure the build with Release profile
 cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 
-# 2. Build all targets (FaceGateCP.dll, fgsetup.exe, fgcredtest.exe, fgsound.exe, fgcli.exe, fgoverlaytest.exe)
+# 2. Build all targets (WinFaceCP.dll, fgsetup.exe, fgcredtest.exe, fgsound.exe, fgcli.exe, fgoverlaytest.exe)
 cmake --build build --config Release
 ```
 
 The resulting binaries will be placed in `build\Release`:
-- `FaceGateCP.dll`: The native Credential Provider loaded by `LogonUI.exe`
+- `WinFaceCP.dll`: The native Credential Provider loaded by `LogonUI.exe`
 - `fgsetup.exe`: Administrative configuration and enrollment utility
 - `fgcredtest.exe`: Non-destructive CredUI test harness
 - `fgsound.exe`: Unlock sound player started by the credential provider (no window, no arguments)
@@ -360,7 +444,7 @@ This validates that the C++ pipeline reproduces MediaPipe landmarks, ArcFace cos
 
 ```powershell
 .\build\Release\fgoverlaytest.exe live                                # HUD hidden until a key press / recognised face
-.\build\Release\fgoverlaytest.exe dll .\build\Release\FaceGateCP.dll  # loads the provider like LogonUI does
+.\build\Release\fgoverlaytest.exe dll .\build\Release\WinFaceCP.dll  # loads the provider like LogonUI does
 .\build\Release\fgoverlaytest.exe wav .\assets\sfx_unlock.wav         # sound format check (silent)
 .\build\Release\fgoverlaytest.exe render $env:TEMP\hud                # renders the animation to PNG frames
 ```
@@ -387,11 +471,11 @@ To **update** an existing install after pulling new code, rebuild (Step 5) and r
 
 **What this script does:**
 0. Pre-flight: confirms every file is present, the DLL is x64 and newer than the source (otherwise: rebuild), the unlock sound is a PCM WAV, and the provider DLL loads and creates its COM object. If anything fails, nothing is changed.
-1. Creates the production directory `C:\Program Files\FaceGate` and copies all binaries (including `fgsound.exe`), assets, models, and recovery documentation. Files left by older versions (`sfx_scan.wav`, `sfx_fail.wav`, `mesh_edges.bin`, a previously loaded DLL moved aside) are removed.
-2. Creates the secure data directory `C:\ProgramData\FaceGate` with restricted Windows Access Control Lists (ACLs): Full Control for `SYSTEM` and `Administrators`, Read/Execute for standard `Users`.
+1. Creates the production directory `C:\Program Files\WinFace` and copies all binaries (including `fgsound.exe`), assets, models, and recovery documentation. Files left by older versions (`sfx_scan.wav`, `sfx_fail.wav`, `mesh_edges.bin`, a previously loaded DLL moved aside) are removed.
+2. Creates the secure data directory `C:\ProgramData\WinFace` with restricted Windows Access Control Lists (ACLs): Full Control for `SYSTEM` and `Administrators`, Read/Execute for standard `Users`.
 3. Registers the COM InprocServer32 class `{C188DC15-E41E-4CCF-9DA9-8238E1D0BBDF}` in the Windows Registry (`HKLM\SOFTWARE\Classes\CLSID`).
 4. Registers the provider in `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers`.
-5. Sets `HKLM\SOFTWARE\FaceGate\Enabled = 0` on a fresh install (a **safe, disabled state** until enrollment and verification are complete). Re-running it to update keeps your faces, password and settings.
+5. Sets `HKLM\SOFTWARE\WinFace\Enabled = 0` on a fresh install (a **safe, disabled state** until enrollment and verification are complete). Re-running it to update keeps your faces, password and settings.
 6. Verifies every installed file by hash and every registry value, printing `[ OK ]` / `[FAIL]` for each.
 
 ---
@@ -401,7 +485,7 @@ To **update** an existing install after pulling new code, rebuild (Step 5) and r
 From the **same Administrator terminal**, enroll your primary face profile:
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" enroll $env:USERNAME
+& "C:\Program Files\WinFace\fgsetup.exe" enroll $env:USERNAME
 ```
 
 The terminal will activate your camera and guide you through **5 distinct head poses**:
@@ -416,7 +500,7 @@ The system captures 15 sharp frames per pose (75 frames total) and computes an a
 *(Optional)* You can enroll up to 3 distinct profiles (e.g. if you regularly wear glasses or want a secondary profile):
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" enroll glasses
+& "C:\Program Files\WinFace\fgsetup.exe" enroll glasses
 ```
 
 ---
@@ -426,7 +510,7 @@ The system captures 15 sharp frames per pose (75 frames total) and computes an a
 To allow Windows LSA to complete workstation unlocks automatically, store your account password:
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" password
+& "C:\Program Files\WinFace\fgsetup.exe" password
 ```
 
 - Enter your Windows account password when prompted (input is hidden).
@@ -438,7 +522,7 @@ To allow Windows LSA to complete workstation unlocks automatically, store your a
 Verify that the stored credential matches your account:
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" verify
+& "C:\Program Files\WinFace\fgsetup.exe" verify
 ```
 
 ---
@@ -449,12 +533,12 @@ Before enabling the lock screen, test the full face authentication and password 
 
 1. Enable test mode:
    ```powershell
-   & "C:\Program Files\FaceGate\fgsetup.exe" mode test
+   & "C:\Program Files\WinFace\fgsetup.exe" mode test
    ```
 
 2. Open a **normal (non-admin) terminal** and launch the CredUI test harness:
    ```powershell
-   & "C:\Program Files\FaceGate\fgcredtest.exe"
+   & "C:\Program Files\WinFace\fgcredtest.exe"
    ```
 
 3. The standard "Windows Security" credential prompt will appear with the "Face unlock" tile.
@@ -468,12 +552,12 @@ Before enabling the lock screen, test the full face authentication and password 
 Once the CredUI test passes, activate full lock screen authentication from an Administrator terminal:
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" mode lock
+& "C:\Program Files\WinFace\fgsetup.exe" mode lock
 ```
 
 Now press `Win + L` to lock your workstation (restart once first if you just installed or updated):
 1. The normal lock screen (date and time) appears, with nothing drawn over it. The camera is already looking.
-2. Look at your camera. When it recognises you, the lock screen lifts by itself and the sign-in page appears with the FaceGate HUD at the top. (Pressing any key or clicking also lifts it.)
+2. Look at your camera. When it recognises you, the lock screen lifts by itself and the sign-in page appears with the WinFace HUD at the top. (Pressing any key or clicking also lifts it.)
 3. Turn your head slightly in the direction the chevrons point.
 4. The brackets close into a circle, a check mark draws in, the unlock sound plays, and your desktop opens.
 
@@ -484,37 +568,37 @@ Now press `Win + L` to lock your workstation (restart once first if you just ins
 All configuration commands must be executed from an **Administrator PowerShell**.
 
 ### Check System Status
-Displays the active operational mode, enrolled face count, password status, whitelisted camera ID, and runtime parameters:
+Displays the active operational mode, enrolled face count, password status, the camera in use (empty = automatic), and runtime parameters:
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" status
+& "C:\Program Files\WinFace\fgsetup.exe" status
 ```
 
 ### Enroll a Face
 Enrolls a face profile. The interactive terminal guides you through 5 head poses (Straight, Turn Left, Turn Right, Tilt Up, Tilt Down), capturing 15 frames per pose. You can enroll up to 3 distinct profiles (e.g., standard, with glasses, or secondary user):
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" enroll <username>
+& "C:\Program Files\WinFace\fgsetup.exe" enroll <username>
 ```
 
 To enroll a second profile:
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" enroll glasses
+& "C:\Program Files\WinFace\fgsetup.exe" enroll glasses
 ```
 
 ### Delete a Face Profile
 Removes a specific enrolled profile by name:
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" remove glasses
+& "C:\Program Files\WinFace\fgsetup.exe" remove glasses
 ```
 
 ### Store / Update Windows Password
 Prompts for your Windows password (hidden input), validates it with the operating system via `LogonUser`, provisions an RSA-2048 key in the TPM, restricts the key to `SYSTEM`, and saves the encrypted payload:
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" password
+& "C:\Program Files\WinFace\fgsetup.exe" password
 ```
 
 > **Note**: You must re-run this command whenever you change your Windows account password.
@@ -523,31 +607,38 @@ Prompts for your Windows password (hidden input), validates it with the operatin
 Tests whether the stored credential is valid with the Windows authentication authority without displaying it (does not require admin elevation):
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" verify
+& "C:\Program Files\WinFace\fgsetup.exe" verify
+```
+
+### Erase Everything
+Deletes all enrolled faces, the stored password (files **and** its TPM keys, removed through a one-off SYSTEM task that is deleted again), the log contents and all settings, and switches face unlock off. WinFace itself stays installed:
+
+```powershell
+& "C:\Program Files\WinFace\fgsetup.exe" erase
 ```
 
 ### Operational Modes
 
-Turn FaceGate completely off:
+Turn WinFace completely off:
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" mode off
+& "C:\Program Files\WinFace\fgsetup.exe" mode off
 ```
 
 Enable safe test mode (appears only in the CredUI Windows Security prompt, not on the lock screen):
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" mode test
+& "C:\Program Files\WinFace\fgsetup.exe" mode test
 ```
 
 Enable full lock-screen authentication:
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" mode lock
+& "C:\Program Files\WinFace\fgsetup.exe" mode lock
 ```
 
 ### Non-Destructive Live Test
 Runs a full verification cycle (webcam feed, face tracking, liveness check, and head turn challenge) directly in your console without locking your computer:
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" test
+& "C:\Program Files\WinFace\fgsetup.exe" test
 ```
 
 ---
@@ -563,14 +654,14 @@ Parameters can be adjusted in the registry using `fgsetup set <Parameter> <Value
 | `MaxFails` | `3` | `1` - `5` | Consecutive failed recognitions before falling back exclusively to PIN/password. Scans that ran while the lock-screen picture was still up, or that never saw a face in range, do not count. |
 | `Strictness` | `0` | `0` - `2` | Recognition threshold: `0` = Balanced (0.42), `1` = Strict (0.48), `2` = Relaxed (0.38). |
 | `Sounds` | `1` | `0` or `1` | Play the unlock sound (`assets/sfx_unlock.wav`, via `fgsound.exe`) when the face unlock succeeds. There is no sound on scan start or rejection. |
-| `Camera` | Auto | Device ID | Whitelist substring for the specific USB camera to use. |
+| `Camera` | Automatic | Device ID or `auto` | The camera to use. **Automatic** picks the first working colour camera and remembers it when you add a face, so the lock screen always uses the same one. Infrared (Windows Hello) sensors and virtual cameras (OBS, phone cameras) are never used. |
 
 Examples:
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" set SearchMs 8000
-& "C:\Program Files\FaceGate\fgsetup.exe" set Sounds 0
-& "C:\Program Files\FaceGate\fgsetup.exe" set MaxFails 3
+& "C:\Program Files\WinFace\fgsetup.exe" set SearchMs 8000
+& "C:\Program Files\WinFace\fgsetup.exe" set Sounds 0
+& "C:\Program Files\WinFace\fgsetup.exe" set MaxFails 3
 ```
 
 ---
@@ -580,13 +671,13 @@ Examples:
 To inspect authentication events, camera open timings, and failure reasons:
 
 ```powershell
-Get-Content C:\ProgramData\FaceGate\log.txt -Tail 30
+Get-Content C:\ProgramData\WinFace\log.txt -Tail 30
 ```
 
 To list all detected video capture devices and verify USB hardware qualification:
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" cameras
+& "C:\Program Files\WinFace\fgsetup.exe" cameras
 ```
 
 Useful log lines:
@@ -601,36 +692,44 @@ Useful log lines:
 | `fgsound.exe failed to start` | The sound fell back to in-process playback and may be cut short; re-run the installer. |
 
 ### The face HUD appears on top of the lock-screen picture
-The lock screen did not react to FaceGate's automatic lift (a Shift tap plus a click in the empty top-left corner). Pressing any key still works. Please report it with the last 30 log lines.
+The lock screen did not react to WinFace's automatic lift (a Shift tap plus a click in the empty top-left corner). Pressing any key still works. Please report it with the last 30 log lines.
 
 ### The unlock sound is cut off
-The sound is played by `C:\Program Files\FaceGate\fgsound.exe`. If that file is missing, the provider plays the sound inside `LogonUI.exe`, which exits about a second after sign-in. Re-run the installer to restore it.
+The sound is played by `C:\Program Files\WinFace\fgsound.exe`. If that file is missing, the provider plays the sound inside `LogonUI.exe`, which exits about a second after sign-in. Re-run the installer to restore it.
+
+### Camera problems
+- **"only an infrared camera was found"** - Windows Hello laptops show a colour camera and an infrared (IR) sensor. WinFace needs the colour one; if Windows lists only the IR sensor, check that the normal webcam is enabled in Device Manager and in `Settings` > `Privacy & security` > `Camera`.
+- **"the camera chosen in WinFace Settings is not connected"** - pick another camera (or *Automatic*) in WinFace > Settings.
+- **"camera busy or blocked"** - close other apps using the camera, and allow camera access for desktop apps in Windows privacy settings.
+- The log shows the camera and format of every scan, e.g. `scan start: ... (HP FHD Camera, 1280x720 @30 fps)`. Cameras without a 1280x720 mode are scaled automatically. Test from source with `build\Release\fgoverlaytest.exe camera`.
 
 ### Windows 11 Smart App Control (SAC) / Defender Blocks
-If the FaceGate tile does not appear on the lock screen or if `fgsetup.exe` fails with an execution block error:
+If the WinFace tile does not appear on the lock screen or if `fgsetup.exe` fails with an execution block error:
 - Windows 11 Smart App Control (SAC) strictly blocks unsigned `.dll` and `.exe` binaries from loading into system processes like `LogonUI.exe`.
 - **Option A (Recommended)**: Set Smart App Control to **Off** or **Evaluation** mode in **Windows Security > App & browser control > Smart App Control settings**.
 - **Option B (Self-Signing)**: Generate a local code-signing certificate and sign the binaries locally:
   ```powershell
-  $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=FaceGate Local" -CertStoreLocation "Cert:\CurrentUser\My"
-  Export-Certificate -Cert $cert -FilePath "$env:TEMP\FaceGateLocal.cer"
-  Import-Certificate -FilePath "$env:TEMP\FaceGateLocal.cer" -CertStoreLocation "Cert:\LocalMachine\Root"
-  Set-AuthenticodeSignature -FilePath "C:\Program Files\FaceGate\FaceGateCP.dll" -Certificate $cert
-  Set-AuthenticodeSignature -FilePath "C:\Program Files\FaceGate\fgsetup.exe" -Certificate $cert
-  Set-AuthenticodeSignature -FilePath "C:\Program Files\FaceGate\fgsound.exe" -Certificate $cert
+  $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=WinFace Local" -CertStoreLocation "Cert:\CurrentUser\My"
+  Export-Certificate -Cert $cert -FilePath "$env:TEMP\WinFaceLocal.cer"
+  Import-Certificate -FilePath "$env:TEMP\WinFaceLocal.cer" -CertStoreLocation "Cert:\LocalMachine\Root"
+  Set-AuthenticodeSignature -FilePath "C:\Program Files\WinFace\WinFaceCP.dll" -Certificate $cert
+  Set-AuthenticodeSignature -FilePath "C:\Program Files\WinFace\fgsetup.exe" -Certificate $cert
+  Set-AuthenticodeSignature -FilePath "C:\Program Files\WinFace\fgsound.exe" -Certificate $cert
   ```
 
 ---
 
 ## Uninstallation
 
-To completely remove FaceGate from the lock screen, delete the registered COM CLSID, and wipe all local face profiles, logs, and TPM keys:
+If you installed with **WinFace-Setup.exe**, uninstall from `Settings` > `Apps` > **WinFace** (or **About** > **Uninstall WinFace** in the app).
+
+For a developer install, this removes WinFace from the lock screen, deletes the registered COM CLSID, and wipes all local face profiles, logs, and the stored password (it hands over to the setup's uninstaller if it finds one):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install\uninstall.ps1
 ```
 
-If Windows reports that `FaceGateCP.dll` is currently held open by `LogonUI.exe`, the uninstaller unregisters the provider immediately and marks the DLL for deletion. Restart the machine once to complete removal. Your Windows PIN and password will remain functional throughout the process.
+If Windows reports that `WinFaceCP.dll` is currently held open by `LogonUI.exe`, the uninstaller unregisters the provider immediately and marks the DLL for deletion. Restart the machine once to complete removal. Your Windows PIN and password will remain functional throughout the process.
 
 ---
 
@@ -641,9 +740,9 @@ If a configuration error or driver issue prevents the lock screen from behaving 
 ### Level 1: System is Booted and Accessible
 If you can sign in using your PIN or password:
 1. Open an Administrator terminal.
-2. Disable FaceGate:
+2. Disable WinFace:
    ```powershell
-   & "C:\Program Files\FaceGate\fgsetup.exe" mode off
+   & "C:\Program Files\WinFace\fgsetup.exe" mode off
    ```
 3. Or run the uninstaller:
    ```powershell
@@ -655,7 +754,7 @@ If you can sign in using your PIN or password:
 2. Select **Troubleshoot > Advanced options > Command Prompt**.
 3. If BitLocker is enabled, enter your 48-digit BitLocker recovery key when prompted (or unlock via `manage-bde -unlock C: -RecoveryPassword YOUR-KEY`).
 4. Identify your primary Windows drive (in recovery mode, Windows is often mounted on `D:`).
-5. Load the offline registry hive and remove the FaceGate Credential Provider registration:
+5. Load the offline registry hive and remove the WinFace Credential Provider registration:
    ```cmd
    reg load HKLM\OFFSOFT C:\Windows\System32\config\SOFTWARE
    reg delete "HKLM\OFFSOFT\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{C188DC15-E41E-4CCF-9DA9-8238E1D0BBDF}" /f
@@ -668,7 +767,10 @@ If you can sign in using your PIN or password:
 ## Credits
 
 - **Unlock sound** (`assets/sfx_unlock.wav`): "Key Videogame SFX" by **mrstokes302**, from [Pixabay](https://pixabay.com/) (sound ID 423629), used under the [Pixabay Content License](https://pixabay.com/service/license-summary/). Converted from MP3 to 16-bit PCM WAV with the leading silence trimmed; otherwise unchanged.
-- **Models**: MediaPipe Face Detector and Face Landmarker (Google), ArcFace, and MiniFASNet (Silent-Face-Anti-Spoofing) belong to their respective authors; see [License](#license).
+- **Face detection and landmarks**: Google MediaPipe Face Detector and Face Landmarker (Apache 2.0).
+- **Anti-spoofing**: MiniFASNet from Silent-Face-Anti-Spoofing by minivision (Apache 2.0).
+- **Face recognition**: InsightFace `buffalo_l` / `w600k_r50` (ArcFace) - **non-commercial research use only**. Not redistributed: WinFace-Setup downloads it from InsightFace's official release after you accept its licence.
+- **Runtime**: ONNX Runtime (MIT).
 
 ---
 

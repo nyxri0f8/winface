@@ -1,4 +1,4 @@
-// FaceGate engine - small geometry toolkit (replaces the OpenCV calls used by the Python bench).
+// WinFace engine - small geometry toolkit (replaces the OpenCV calls used by the Python bench).
 #pragma once
 #include <array>
 #include <vector>

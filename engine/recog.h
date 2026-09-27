@@ -1,4 +1,4 @@
-// FaceGate engine - ArcFace INT8 recognizer + MiniFASNet texture liveness.
+// WinFace engine - ArcFace INT8 recognizer + MiniFASNet texture liveness.
 #pragma once
 #include <array>
 #include <string>

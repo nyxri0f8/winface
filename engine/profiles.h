@@ -1,4 +1,4 @@
-// FaceGate engine - enrolled face profiles file (up to 3 profiles).
+// WinFace engine - enrolled face profiles file (up to 3 profiles).
 // Format: uint32 count, then per profile: uint32 name_len, name (UTF-8), uint32 n, n * 512 float32
 #pragma once
 #include <map>

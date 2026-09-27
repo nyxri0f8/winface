@@ -1,5 +1,7 @@
 #include "recog.h"
 
+#include <windows.h>
+
 #include <algorithm>
 #include <cmath>
 
@@ -41,7 +43,14 @@ float fas_real(Model& m, const Image& crop) {
 
 }  // namespace
 
-Recognizer::Recognizer(Ort::Env& env, const std::wstring& dir) : m_(env, dir + L"\\arcface_int8.onnx", 4) {}
+// arcface_int8.onnx: locally quantized dev model (not redistributable). w600k_r50.onnx: the official InsightFace
+// buffalo_l model the WinFace installer downloads after the user accepts its non-commercial licence.
+static std::wstring arcface_path(const std::wstring& dir) {
+    std::wstring q = dir + L"\\arcface_int8.onnx";
+    return GetFileAttributesW(q.c_str()) != INVALID_FILE_ATTRIBUTES ? q : dir + L"\\w600k_r50.onnx";
+}
+
+Recognizer::Recognizer(Ort::Env& env, const std::wstring& dir) : m_(env, arcface_path(dir), 4) {}
 
 Image Recognizer::align112(const Image& bgr, const Face& f) {
     Pt src[5];

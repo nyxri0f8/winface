@@ -8,14 +8,18 @@
 //   mode off|test|lock
 //   set <Setting> <value>      Camera | SearchMs | ChallengeMs | MaxFails | Strictness | Sounds
 //   test [--json]              full face check (scan + liveness + head turn) without signing in
-// Privacy: never prints the password; face data stays in %ProgramData%\FaceGate (admin-only).
+//   erase                      delete faces, stored password (+ its TPM keys), log contents and all settings
+//   tpm-cleanup [all]          (runs as SYSTEM via a one-off task) delete old / all WinFace TPM keys
+// Privacy: never prints the password; face data stays in %ProgramData%\WinFace (admin-only).
 #include <windows.h>
 #include <conio.h>
 #include <sddl.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cwctype>
 #include <string>
 
 #include "../cp/common.h"
@@ -88,7 +92,7 @@ static std::wstring current_sid() {
 
 static bool set_reg(const wchar_t* name, DWORD v) {
     HKEY k;
-    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\FaceGate", 0, nullptr, 0, KEY_SET_VALUE | KEY_WOW64_64KEY, nullptr, &k, nullptr)) return false;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WinFace", 0, nullptr, 0, KEY_SET_VALUE | KEY_WOW64_64KEY, nullptr, &k, nullptr)) return false;
     bool ok = RegSetValueExW(k, name, 0, REG_DWORD, (BYTE*)&v, sizeof v) == ERROR_SUCCESS;
     RegCloseKey(k);
     return ok;
@@ -96,7 +100,7 @@ static bool set_reg(const wchar_t* name, DWORD v) {
 
 static bool set_reg_sz(const wchar_t* name, const std::wstring& v) {
     HKEY k;
-    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\FaceGate", 0, nullptr, 0, KEY_SET_VALUE | KEY_WOW64_64KEY, nullptr, &k, nullptr)) return false;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WinFace", 0, nullptr, 0, KEY_SET_VALUE | KEY_WOW64_64KEY, nullptr, &k, nullptr)) return false;
     bool ok = RegSetValueExW(k, name, 0, REG_SZ, (BYTE*)v.c_str(), DWORD((v.size() + 1) * 2)) == ERROR_SUCCESS;
     RegCloseKey(k);
     return ok;
@@ -168,6 +172,21 @@ struct Engine3 {   // the three models, loaded once
     explicit Engine3(const std::wstring& md) : mesh(env, md), rec(env, md), tex(env, md) {}
 };
 
+// A camera is remembered by the stable start of its device path, e.g. usb#vid_0408&pid_5496&mi_00
+static std::wstring camera_fragment(std::wstring v) {
+    std::transform(v.begin(), v.end(), v.begin(), [](wchar_t ch) { return (wchar_t)towlower(ch); });
+    if (v.rfind(L"\\\\?\\", 0) == 0) v = v.substr(4);
+    size_t h1 = v.find(L'#'), h2 = h1 == std::wstring::npos ? h1 : v.find(L'#', h1 + 1);
+    return h2 != std::wstring::npos ? v.substr(0, h2) : v;
+}
+
+static void emit_camera(const Camera& cam) {
+    if (g_json)
+        emit("{\"t\":\"camera\",\"name\":" + jstr(cam.info().name) + ",\"format\":" + jstr(cam.info().format) + "}");
+    else
+        printf("camera: %ls, %s\n", cam.info().name.c_str(), cam.info().format.c_str());
+}
+
 // ---------- commands ----------
 static int enroll(const std::string& name) {
     if (name.empty() || name.size() > 32) return fail("name must be 1-32 characters", 1);
@@ -180,6 +199,7 @@ static int enroll(const std::string& name) {
     auto cfg = fgcp::Config::load();
     Camera cam(cfg.camera);
     if (!cam.open()) return fail("camera: " + cam.error(), 2);
+    emit_camera(cam);
 
     struct Pose { const char* say; float y0, y1, p0, p1; };
     const Pose poses[] = {{"Look straight at the camera", -8, 8, -8, 8}, {"Slowly turn your head LEFT", -35, -12, -15, 15},
@@ -232,6 +252,9 @@ static int enroll(const std::string& name) {
     profiles[name] = embs;
     CreateDirectoryW(fgcp::data_dir().c_str(), nullptr);
     if (!save_profiles(prof_path, profiles)) return fail("cannot save faces (run as administrator)", 3);
+    // automatic camera choice: from now on use exactly the camera this face was captured with (the lock screen
+    // must never pick a different one, e.g. an external webcam plugged in later)
+    if (cfg.camera.empty()) set_reg_sz(L"Camera", camera_fragment(cam.info().symlink));
     char b[200];
     snprintf(b, sizeof b, "{\"t\":\"done\",\"ok\":true,\"name\":%s,\"captures\":%zu,\"similar_to\":%s}", jstr(name).c_str(),
              embs.size(), jstr(similar).c_str());
@@ -290,6 +313,8 @@ static int verify() {
     return who.empty() ? 1 : 0;
 }
 
+static int tpm_cleanup_as_system(bool all);
+
 static int password(bool from_stdin) {
     std::wstring a, b;
     if (from_stdin) {
@@ -311,8 +336,145 @@ static int password(bool from_stdin) {
     wipe();
     if (!ok_tpm) return fail("TPM: " + utf8(err), 2);
     set_reg_sz(L"UserSid", current_sid());
+    tpm_cleanup_as_system(false);   // keys of earlier passwords are no longer needed
     say("Password saved (TPM) and linked to this account.",
         "{\"t\":\"done\",\"ok\":true,\"account\":" + jstr(who) + ",\"test_copy\":" + (ok_dp ? "true" : "false") + "}");
+    return 0;
+}
+
+// The TPM keys are SYSTEM-only (see secret.h), so an admin cannot delete them. Run `fgsetup tpm-cleanup` once as
+// SYSTEM through a one-off scheduled task, wait for it, then remove the task. Returns the keys still left.
+static int tpm_cleanup_as_system(bool all) {
+    int left = fgcp::tpm_delete_keys(!all);   // works directly if we already are SYSTEM
+    if (left == 0) return 0;
+    const wchar_t* task = L"WinFace TPM cleanup";
+    wchar_t exe[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    auto run = [](std::wstring cmd) {
+        STARTUPINFOW si{sizeof si};
+        PROCESS_INFORMATION pi{};
+        if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) return -1;
+        WaitForSingleObject(pi.hProcess, 30000);
+        DWORD code = 1;
+        GetExitCodeProcess(pi.hProcess, &code);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return (int)code;
+    };
+    std::wstring tr = L"\\\"" + std::wstring(exe) + L"\\\" tpm-cleanup" + (all ? L" all" : L"");
+    if (run(L"schtasks.exe /create /f /tn \"" + std::wstring(task) + L"\" /sc once /st 00:00 /ru SYSTEM /rl HIGHEST /tr \"" + tr + L"\"") == 0 &&
+        run(L"schtasks.exe /run /tn \"" + std::wstring(task) + L"\"") == 0) {
+        for (int i = 0; i < 60 && left > 0; ++i) {   // up to ~15 s
+            Sleep(250);
+            left = fgcp::tpm_delete_keys(!all);      // as admin this only counts what is left
+        }
+    }
+    run(L"schtasks.exe /delete /f /tn \"" + std::wstring(task) + L"\"");
+    return left;
+}
+
+static int tpm_cleanup(bool all) {
+    int deleted = 0, left = fgcp::tpm_delete_keys(!all, &deleted);
+    say(("deleted " + std::to_string(deleted) + " key(s), " + std::to_string(left) + " left").c_str(),
+        "{\"t\":\"done\",\"ok\":" + std::string(left == 0 ? "true" : "false") + ",\"deleted\":" + std::to_string(deleted) + "}");
+    return left == 0 ? 0 : 1;
+}
+
+// Everything WinFace stored on this PC, gone: faces, password (files + TPM keys), log contents, settings.
+static int erase() {
+    set_reg(L"Enabled", 0);   // first: the lock screen stops using face unlock right away
+    std::wstring dir = fgcp::data_dir();
+    bool faces = DeleteFileW((dir + L"\\profiles.bin").c_str()) || GetLastError() == ERROR_FILE_NOT_FOUND;
+    fgcp::erase_password_files();
+    bool pw = GetFileAttributesW((dir + L"\\secret.tpm").c_str()) == INVALID_FILE_ATTRIBUTES;
+    // keep the log file (and its permissions), just empty it
+    HANDLE h = CreateFileW((dir + L"\\log.txt").c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, TRUNCATE_EXISTING, 0, nullptr);
+    bool log = h != INVALID_HANDLE_VALUE || GetLastError() == ERROR_FILE_NOT_FOUND;
+    if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+    HKEY k;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WinFace", 0, KEY_SET_VALUE | KEY_WOW64_64KEY, &k) == ERROR_SUCCESS) {
+        for (const wchar_t* v : {L"UserSid", L"TestMode", L"Scenarios", L"Camera", L"SearchMs", L"ChallengeMs", L"MaxFails",
+                                 L"Strictness", L"Sounds"})
+            RegDeleteValueW(k, v);
+        RegCloseKey(k);
+    }
+    int keys_left = tpm_cleanup_as_system(true);
+    char b[200];
+    snprintf(b, sizeof b, "{\"t\":\"done\",\"ok\":%s,\"faces\":%s,\"password\":%s,\"log\":%s,\"tpm_keys_left\":%d}",
+             faces && pw && log && keys_left == 0 ? "true" : "false", faces ? "true" : "false", pw ? "true" : "false",
+             log ? "true" : "false", keys_left);
+    say(keys_left == 0 ? "Erased: faces, password (and its TPM keys), log, settings."
+                       : "Erased faces, password, log and settings; some old TPM keys could not be removed.", b);
+    return faces && pw && log ? 0 : 1;
+}
+
+// Before v1.0 the product was called FaceGate: move its data to the WinFace locations (run by the installers).
+// Existing WinFace files are never overwritten; running it again does nothing.
+#ifdef WINFACE_MIGRATE_TEST   // fgsetup_migratetest: same code on a scratch HKCU key (see tools/migratetest.ps1)
+static const HKEY kMigRoot = HKEY_CURRENT_USER;
+static const wchar_t* kMigOld = L"Software\\WinFaceMigrateTest\\FaceGate";
+static const wchar_t* kMigNew = L"Software\\WinFaceMigrateTest\\WinFace";
+#else
+static const HKEY kMigRoot = HKEY_LOCAL_MACHINE;
+static const wchar_t* kMigOld = L"SOFTWARE\\FaceGate";
+static const wchar_t* kMigNew = L"SOFTWARE\\WinFace";
+#endif
+
+static int migrate() {
+    auto move_dir = [](const std::wstring& from, const std::wstring& to) {
+        int moved = 0;
+        if (GetFileAttributesW(from.c_str()) == INVALID_FILE_ATTRIBUTES) return 0;
+        CreateDirectoryW(to.c_str(), nullptr);
+        WIN32_FIND_DATAW fd;
+        HANDLE h = FindFirstFileW((from + L"\\*").c_str(), &fd);
+        if (h != INVALID_HANDLE_VALUE) {
+            do {
+                if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+                std::wstring src = from + L"\\" + fd.cFileName, dst = to + L"\\" + fd.cFileName;
+                bool dst_empty = true;
+                WIN32_FILE_ATTRIBUTE_DATA a;
+                if (GetFileAttributesExW(dst.c_str(), GetFileExInfoStandard, &a)) dst_empty = a.nFileSizeLow == 0 && a.nFileSizeHigh == 0;
+                if (dst_empty && MoveFileExW(src.c_str(), dst.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED)) ++moved;
+            } while (FindNextFileW(h, &fd));
+            FindClose(h);
+        }
+        RemoveDirectoryW(from.c_str());   // only succeeds once it is empty
+        return moved;
+    };
+    std::wstring pd = fgcp::data_dir();
+    int files = move_dir(pd.substr(0, pd.find_last_of(L'\\')) + L"\\FaceGate", pd);
+    wchar_t lad[MAX_PATH];
+    DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", lad, MAX_PATH);
+    if (n && n < MAX_PATH) files += move_dir(std::wstring(lad) + L"\\FaceGate", std::wstring(lad) + L"\\WinFace");
+
+    int values = 0;
+    bool copied_all = false;
+    HKEY from;
+    if (RegOpenKeyExW(kMigRoot, kMigOld, 0, KEY_READ | KEY_WOW64_64KEY, &from) == ERROR_SUCCESS) {
+        HKEY to;
+        if (RegCreateKeyExW(kMigRoot, kMigNew, 0, nullptr, 0, KEY_READ | KEY_SET_VALUE | KEY_WOW64_64KEY, nullptr, &to, nullptr) == ERROR_SUCCESS) {
+            copied_all = true;
+            for (DWORD i = 0;; ++i) {
+                wchar_t name[256];
+                BYTE data[1024];
+                DWORD nlen = 256, dlen = sizeof data, type = 0;
+                LSTATUS e = RegEnumValueW(from, i, name, &nlen, nullptr, &type, data, &dlen);
+                if (e == ERROR_NO_MORE_ITEMS) break;
+                if (e != ERROR_SUCCESS) { copied_all = false; break; }
+                // the installer pre-creates Enabled=0 for a fresh install; the old setting wins over that default
+                if (RegQueryValueExW(to, name, nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS && wcscmp(name, L"Enabled") != 0) continue;
+                if (RegSetValueExW(to, name, 0, type, data, dlen) == ERROR_SUCCESS) ++values; else copied_all = false;
+            }
+            RegCloseKey(to);
+        }
+        RegCloseKey(from);
+        // only once every setting is safely in the new key
+        if (copied_all) RegDeleteTreeW(kMigRoot, kMigOld), RegDeleteKeyExW(kMigRoot, kMigOld, KEY_WOW64_64KEY, 0);
+        else fgcp::log_event(L"migrate: settings could not all be copied - the old FaceGate key was kept");
+    }
+    char b[160];
+    snprintf(b, sizeof b, "{\"t\":\"done\",\"ok\":true,\"files\":%d,\"settings\":%d}", files, values);
+    say(("moved " + std::to_string(files) + " file(s) and " + std::to_string(values) + " setting(s) from FaceGate to WinFace").c_str(), b);
     return 0;
 }
 
@@ -327,12 +489,9 @@ static int mode(const std::wstring& m) {
 
 static int set_setting(const std::wstring& name, const std::wstring& val) {
     if (name == L"Camera") {
-        // stored as the stable device-path fragment, e.g. usb#vid_0408&pid_5496&mi_00
-        std::wstring v = val;
-        if (v.rfind(L"\\\\?\\", 0) == 0) v = v.substr(4);
-        size_t h1 = v.find(L'#'), h2 = h1 == std::wstring::npos ? h1 : v.find(L'#', h1 + 1);
-        if (h2 != std::wstring::npos) v = v.substr(0, h2);
-        if (v.rfind(L"usb#", 0) != 0) return fail("only real USB cameras can be used", 1);
+        if (val.empty() || val == L"auto") { set_reg_sz(L"Camera", L""); say("saved", "{\"t\":\"done\",\"ok\":true}"); return 0; }
+        std::wstring v = camera_fragment(val);
+        if (!is_hardware_camera(L"\\\\?\\" + v)) return fail("only real cameras can be used (not virtual ones)", 1);
         set_reg_sz(L"Camera", v);
     } else if (name == L"SearchMs" || name == L"ChallengeMs" || name == L"MaxFails" || name == L"Strictness" || name == L"Sounds") {
         set_reg(name.c_str(), (DWORD)_wtoi(val.c_str()));   // the lock screen clamps every value to a safe range
@@ -370,7 +529,7 @@ static int cameras() {
     std::string a = "[";
     for (auto& c : list_cameras()) {
         a += (a.size() > 1 ? "," : "") + std::string("{\"name\":") + jstr(c.name) + ",\"id\":" + jstr(c.symlink) +
-             ",\"usable\":" + (c.hardware ? "true" : "false") + "}";
+             ",\"usable\":" + (c.hardware && !c.infrared ? "true" : "false") + ",\"infrared\":" + (c.infrared ? "true" : "false") + "}";
         if (!g_json) printf("%s %ls\n   %ls\n", c.hardware ? "[usable] " : "[virtual]", c.name.c_str(), c.symlink.c_str());
     }
     if (g_json) emit("{\"t\":\"cameras\",\"list\":" + a + "]}");
@@ -387,6 +546,7 @@ static int test() {
     Engine3 e(install_dir() + L"\\models");
     Camera cam(cfg.camera);
     if (!cam.open()) return fail("camera: " + cam.error(), 2);
+    emit_camera(cam);
     Params prm;
     prm.match = cfg.match_threshold();
     prm.search_timeout_ms = cfg.search_ms;
@@ -436,6 +596,9 @@ int wmain(int argc, wchar_t** argv) {
         if (cmd == L"status") return status();
         if (cmd == L"cameras") return cameras();
         if (cmd == L"verify") return verify();
+#ifdef WINFACE_MIGRATE_TEST
+        if (cmd == L"migrate") return migrate();
+#endif
         if (!is_admin()) return fail("run as administrator", 5);
         if (cmd == L"enroll" && args.size() > 1) return enroll(narrow(arg(1)));
         if (cmd == L"remove" && args.size() > 1) return remove_profile(narrow(arg(1)));
@@ -443,10 +606,13 @@ int wmain(int argc, wchar_t** argv) {
         if (cmd == L"mode" && args.size() > 1) return mode(arg(1));
         if (cmd == L"set" && args.size() > 2) return set_setting(arg(1), arg(2));
         if (cmd == L"test") return test();
+        if (cmd == L"erase") return erase();
+        if (cmd == L"migrate") return migrate();
+        if (cmd == L"tpm-cleanup") return tpm_cleanup(arg(1) == L"all");
     } catch (const std::exception& e) {
         return fail(e.what(), 3);
     }
     printf("usage: fgsetup status|cameras|verify|enroll <name>|remove <name>|password [--stdin]|mode off|test|lock|"
-           "set <Setting> <value>|test   [--json]\n");
+           "set <Setting> <value>|test|erase   [--json]\n");
     return 1;
 }

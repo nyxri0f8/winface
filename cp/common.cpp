@@ -17,7 +17,7 @@ static DWORD reg_dword(HKEY k, const wchar_t* name, DWORD def) {
 Config Config::load() {
     Config c;
     HKEY k;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\FaceGate", 0, KEY_READ | KEY_WOW64_64KEY, &k) != ERROR_SUCCESS) return c;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WinFace", 0, KEY_READ | KEY_WOW64_64KEY, &k) != ERROR_SUCCESS) return c;
     c.enabled = reg_dword(k, L"Enabled", 0) == 1;
     c.scenarios = reg_dword(k, L"Scenarios", 1);
     c.test_mode = reg_dword(k, L"TestMode", 0) == 1;
@@ -47,7 +47,7 @@ std::wstring module_dir() {
 std::wstring data_dir() {
     wchar_t p[MAX_PATH];
     DWORD n = GetEnvironmentVariableW(L"ProgramData", p, MAX_PATH);
-    return (n && n < MAX_PATH ? std::wstring(p) : std::wstring(L"C:\\ProgramData")) + L"\\FaceGate";
+    return (n && n < MAX_PATH ? std::wstring(p) : std::wstring(L"C:\\ProgramData")) + L"\\WinFace";
 }
 
 void log_event(const wchar_t* fmt, ...) {

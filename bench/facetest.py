@@ -30,7 +30,7 @@ POSES = [  # (instruction, yaw range, pitch range)
 ]
 PER_POSE = 15
 MIN_SHARPNESS = 60.0
-WIN = "FaceGate - bench"
+WIN = "WinFace - bench"
 
 
 def sharpness(crop):

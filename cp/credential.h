@@ -1,4 +1,4 @@
-// FaceGate CP - the "Face unlock" tile (one per enrolled Windows account).
+// WinFace CP - the "Face unlock" tile (one per enrolled Windows account).
 #pragma once
 #include <atomic>
 #include <functional>

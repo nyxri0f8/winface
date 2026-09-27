@@ -1,4 +1,4 @@
-// FaceGate CP - helpers modelled on Microsoft's SampleV2CredentialProvider (MIT).
+// WinFace CP - helpers modelled on Microsoft's SampleV2CredentialProvider (MIT).
 #pragma once
 #include "common.h"
 

@@ -1,4 +1,4 @@
-// FaceGate CP - ICredentialProvider: decides where the tile appears and triggers auto-logon.
+// WinFace CP - ICredentialProvider: decides where the tile appears and triggers auto-logon.
 #include "credential.h"
 #include "helpers.h"
 

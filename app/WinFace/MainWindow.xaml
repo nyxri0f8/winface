@@ -1,0 +1,65 @@
+<Window x:Class="WinFace.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="WinFace" Width="1080" Height="720" MinWidth="880" MinHeight="600"
+        Background="{StaticResource Bg}" FontFamily="{StaticResource Ui}" Icon="winface.png"
+        WindowStartupLocation="CenterScreen">
+  <Grid>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition x:Name="SideCol" Width="232" />
+      <ColumnDefinition Width="*" />
+    </Grid.ColumnDefinitions>
+
+    <!-- sidebar -->
+    <Border x:Name="Side" Background="{StaticResource Sidebar}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
+      <DockPanel Margin="14,20,14,16">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="6,0,0,26">
+          <Image Source="winface.png" Width="34" Height="34" />
+          <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+            <TextBlock Text="WinFace" Style="{StaticResource H2}" />
+            <TextBlock Text="Face unlock for Windows" Style="{StaticResource Sub}" FontSize="11.5" />
+          </StackPanel>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Bottom">
+          <Border Background="{StaticResource Surface}" CornerRadius="10" Padding="12,10">
+            <StackPanel>
+              <TextBlock Text="LOCK SCREEN" Style="{StaticResource Sub}" FontSize="10.5" FontWeight="SemiBold" />
+              <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                <Ellipse x:Name="ModeDot" Width="8" Height="8" Fill="{StaticResource Faint}" VerticalAlignment="Center" />
+                <TextBlock x:Name="ModeText" Text="..." Style="{StaticResource Body}" FontSize="13" Margin="8,0,0,0" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <StackPanel x:Name="Nav">
+          <RadioButton Style="{StaticResource Nav}" Tag="home" AutomationProperties.Name="Home" IsChecked="True" Checked="OnNav">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE80F;" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" /><TextBlock Text="Home" Margin="12,0,0,0" /></StackPanel>
+          </RadioButton>
+          <RadioButton Style="{StaticResource Nav}" Tag="faces" AutomationProperties.Name="Faces" Checked="OnNav">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE77B;" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" /><TextBlock Text="Faces" Margin="12,0,0,0" /></StackPanel>
+          </RadioButton>
+          <RadioButton Style="{StaticResource Nav}" Tag="password" AutomationProperties.Name="Password" Checked="OnNav">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE72E;" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" /><TextBlock Text="Password" Margin="12,0,0,0" /></StackPanel>
+          </RadioButton>
+          <RadioButton Style="{StaticResource Nav}" Tag="test" AutomationProperties.Name="Test" Checked="OnNav">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE9D9;" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" /><TextBlock Text="Test" Margin="12,0,0,0" /></StackPanel>
+          </RadioButton>
+          <RadioButton Style="{StaticResource Nav}" Tag="settings" AutomationProperties.Name="Settings" Checked="OnNav">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE713;" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" /><TextBlock Text="Settings" Margin="12,0,0,0" /></StackPanel>
+          </RadioButton>
+          <RadioButton Style="{StaticResource Nav}" Tag="logs" AutomationProperties.Name="Logs" Checked="OnNav">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE9F9;" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" /><TextBlock Text="Logs" Margin="12,0,0,0" /></StackPanel>
+          </RadioButton>
+          <RadioButton Style="{StaticResource Nav}" Tag="about" AutomationProperties.Name="About" Checked="OnNav">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE946;" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" /><TextBlock Text="About" Margin="12,0,0,0" /></StackPanel>
+          </RadioButton>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <!-- page -->
+    <ContentControl x:Name="Page" Grid.Column="1" Focusable="False" />
+  </Grid>
+</Window>

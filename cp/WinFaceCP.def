@@ -1,4 +1,4 @@
-LIBRARY FaceGateCP
+LIBRARY WinFaceCP
 EXPORTS
     DllCanUnloadNow     PRIVATE
     DllGetClassObject   PRIVATE
