@@ -68,6 +68,10 @@ const Status& Engine::fail(const std::string& why) {
 }
 
 const Status& Engine::timeouts(double now) {
+    if (st_.state == State::Search && now - t_start_ > p_.search_timeout_ms && hold_) {
+        // nobody lifted the curtain: not an attempt, the scan simply ends (a key press starts a fresh one)
+        return fail("idle: waited behind the lock screen, no key pressed");
+    }
     if (st_.state == State::Search && now - t_start_ > p_.search_timeout_ms) {
         char b[240];
         snprintf(b, sizeof b, "no confident match in time (frames: face %d, in range %d, too far %d, too close %d, not frontal %d;"
@@ -115,7 +119,10 @@ const Status& Engine::step(const Image& frame, const std::vector<Face>& faces, d
         st_.hint = "Scanning...";
         st_.progress = 0.5f * std::min(1.0f, float(nhits) / p_.need);
         bool ready = nhits >= p_.need && (int)texs_.size() >= p_.need && tex_med >= p_.texture;
-        if (ready && std::fabs(f.yaw) > p_.frontal_deg) {
+        st_.waiting = ready && hold_;
+        if (ready && hold_) {
+            st_.hint = "Face found";   // hidden: wait for the curtain to lift before asking for the turn
+        } else if (ready && std::fabs(f.yaw) > p_.frontal_deg) {
             st_.hint = "Look straight at the screen";
             ++n_side_;
         } else if (ready) {
@@ -125,6 +132,7 @@ const Status& Engine::step(const Image& frame, const std::vector<Face>& faces, d
             yaw0_ = f.yaw;
             pts0_ = pick(f);
             w0_ = w;
+            lows_ = 0;
             st_.nonplanar = 0;
             st_.hint = st_.direction < 0 ? "Turn your head slightly LEFT" : "Turn your head slightly RIGHT";
         }
@@ -139,7 +147,11 @@ const Status& Engine::step(const Image& frame, const std::vector<Face>& faces, d
     st_.turn = d;
     st_.progress = 0.5f + 0.5f * std::min(std::max(d * want, 0.0f) / p_.turn_deg, 1.0f);
     if (d * want <= -p_.wrong_way_deg) return fail("turned the wrong way");
-    if (score < p_.match) return fail(fmt("identity lost during challenge (%.2f)", score));
+    const float keep = std::min(p_.match, std::max(p_.match - p_.challenge_floor_drop, p_.challenge_floor_min));
+    if (score < keep) {
+        if (++lows_ > p_.challenge_lows_allowed) return fail(fmt("identity lost during challenge (%.2f)", score));
+        return timeouts(now);   // forgiven once (motion blur) - but never the frame that completes the turn
+    }
     if (tx < 0.3f && tex_med < p_.texture) return fail(fmt("texture looks fake (%.2f)", tex_med));
     if (d * want >= p_.turn_deg) {
         if (st_.nonplanar < p_.nonplanar_min) return fail(fmt("turn looked flat (%.2f%%) - photo/screen?", st_.nonplanar * 100));

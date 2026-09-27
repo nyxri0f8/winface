@@ -28,6 +28,11 @@ class Params:
     wrong_way_deg: float = 15.0   # only a clear turn the other way fails the challenge
     frontal_deg: float = 8.0      # challenge starts from a centred head, measured from there
     nonplanar_min: float = 0.025  # genuine turns measured 3.3%+ (18 attempts); flat media stays < 1%
+    # during the turn the score only has to stay above a floor (still well above the best stranger, 0.313);
+    # one motion-blurred frame below it is forgiven. Identity was already proven frontally before the turn.
+    challenge_floor_drop: float = 0.08
+    challenge_floor_min: float = 0.34
+    challenge_lows_allowed: int = 1
     search_timeout: float = 5.0
     challenge_timeout: float = 2.5
 
@@ -106,7 +111,8 @@ class Engine:
                 st.hint = "Look straight at the screen"  # start the turn from centre, not mid-motion
             elif ready:
                 st.state, st.direction = "CHALLENGE", self.rng.choice(["LEFT", "RIGHT"])
-                self.ch = {"t0": now, "yaw0": f.yaw, "pts0": f.pts[PARALLAX_IDX, :2].copy(), "w0": float(w), "peak_np": 0.0}
+                self.ch = {"t0": now, "yaw0": f.yaw, "pts0": f.pts[PARALLAX_IDX, :2].copy(), "w0": float(w), "peak_np": 0.0,
+                           "lows": 0}
                 st.hint = f"Turn your head slightly {st.direction}"
             return self._timeouts(now)
 
@@ -121,8 +127,12 @@ class Engine:
         st.progress = 0.5 + 0.5 * min(max(d * want, 0) / p.turn_deg, 1.0)
         if d * want <= -p.wrong_way_deg:
             return self._fail("turned the wrong way")
-        if score < p.match:
-            return self._fail(f"identity lost during challenge ({score:.2f})")
+        floor = min(p.match, max(p.match - p.challenge_floor_drop, p.challenge_floor_min))
+        if score < floor:
+            c["lows"] += 1
+            if c["lows"] > p.challenge_lows_allowed:
+                return self._fail(f"identity lost during challenge ({score:.2f})")
+            return self._timeouts(now)  # forgiven once (motion blur), never on the frame that completes the turn
         if L["texture"] < 0.3 and tex_med < p.texture:
             return self._fail(f"texture looks fake ({tex_med:.2f})")
         if d * want >= p.turn_deg:

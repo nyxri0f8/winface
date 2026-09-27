@@ -32,6 +32,13 @@ target_link_libraries(fgsetup PRIVATE fgengine shlwapi.lib)
 
 add_executable(fgcredtest tools/fgcredtest.cpp)
 
+# unlock sound player: its own process so the sound outlives LogonUI (no window, no arguments)
+add_executable(fgsound WIN32 tools/fgsound.cpp)
+
+# dev check of the lock-screen overlay, provider DLL and sound (renders the real HUD code; not installed)
+add_executable(fgoverlaytest tools/fgoverlaytest.cpp cp/overlay.cpp cp/common.cpp)
+target_link_libraries(fgoverlaytest PRIVATE fgengine shlwapi.lib)
+
 foreach(t fgcli fgsetup)
     add_custom_command(TARGET ${t} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${ORT_DIR}/lib/onnxruntime.dll $<TARGET_FILE_DIR:${t}>)

@@ -50,9 +50,17 @@ IFACEMETHODIMP FaceCredential::Advise(ICredentialProviderCredentialEvents* ev) {
     if (!scanner_) scanner_ = std::make_unique<Scanner>([this](bool ok, const std::string& why) { on_scan_done(ok, why); }, cfg_);
     if (!overlay_) {
         overlay_ = std::make_unique<Overlay>();
+        // Lock / sign-in screen: the camera starts straight away, but the overlay waits behind the Windows curtain
+        // until a key press or click lifts it. CredUI has no curtain, so it shows at once.
+        bool behind_curtain = cpus_ == CPUS_UNLOCK_WORKSTATION || cpus_ == CPUS_LOGON;
         overlay_->start(parent, [this] { return scanner_->snapshot(); }, [this](bool display_on) {
             // lid opened / screen woke: scan again; screen off: camera off
             if (display_on) restart_scan(L"display on"); else if (scanner_) scanner_->stop();
+        }, behind_curtain, [this] {
+            // curtain lifted: the waiting scan may now ask for the head turn; if it already ended, start a fresh one
+            if (!scanner_) return;
+            scanner_->set_hold(false);
+            if (!scanner_->snapshot().running && verified_at_ == 0) restart_scan(L"curtain lifted");
         });
     }
     log_event(L"credential advised (scenario %d)", (int)cpus_);
@@ -80,7 +88,8 @@ void FaceCredential::restart_scan(const wchar_t* why) {
     if (fails_ >= (int)cfg_.max_fails) { set_status(L"Face not recognised - use your PIN (Sign-in options)"); return; }
     if (overlay_) { overlay_->reset(); }
     set_status(L"Look at the camera");
-    if (cfg_.sounds) play_sound(L"sfx_scan");
+    // behind the curtain: recognise now, ask for the head turn only once the user can see the prompt
+    scanner_->set_hold(overlay_ && !overlay_->revealed());
     scanner_->start();
 }
 

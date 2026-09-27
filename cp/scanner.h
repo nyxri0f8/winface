@@ -22,6 +22,7 @@ struct Snapshot {
     bool has_face = false;
     std::vector<fg::Pt> mesh;   // 478 points normalised: centre (0,0), face height ~= 1
     bool running = false;
+    bool waiting = false;       // recognised you behind the lock-screen curtain, waiting to show the head-turn prompt
 };
 
 class Scanner {
@@ -33,6 +34,7 @@ public:
 
     void start();        // no-op if already scanning
     void stop();         // camera off, thread joined
+    void set_hold(bool h) { hold_ = h; }   // true: recognise but don't ask for the head turn (prompt not visible)
     Snapshot snapshot();
 
 private:
@@ -42,7 +44,7 @@ private:
     Done done_;
     Config cfg_;
     std::thread th_;
-    std::atomic<bool> stop_{false}, running_{false};
+    std::atomic<bool> stop_{false}, running_{false}, hold_{false};
     std::mutex mu_;
     Snapshot snap_;
 

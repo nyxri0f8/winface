@@ -49,7 +49,7 @@ FaceGate bridges this gap by combining modern computer vision with low-level Win
 - **Native Credential Provider V2**: Implements `ICredentialProvider`, `ICredentialProviderCredential2`, and `ICredentialProviderSetUserArray` directly in C++20.
 - **In-Process ONNX Inference**: MediaPipe Face Mesh (478 3D landmarks) and ArcFace (512-dimensional embeddings) executed on-device via ONNX Runtime without external runtimes or background daemons.
 - **Hardware Cryptography**: User credentials are encrypted using an RSA-2048 key sealed inside the motherboard's Trusted Platform Module (TPM 2.0).
-- **Direct Winlogon Overlay**: A 32-bit premultiplied alpha layered window attaches directly to the secure Winlogon desktop, rendering vector-based wireframes and Face ID-style status indicators at ~30 FPS with zero camera pixels displayed or stored.
+- **Direct Winlogon Overlay**: A 32-bit premultiplied alpha layered window attaches directly to the secure Winlogon desktop, rendering a minimal monochrome Face ID-style glyph (corner brackets that morph into a check-mark circle on success, a head-shake on rejection) at ~60 FPS with zero camera pixels displayed or stored. On the lock/sign-in screen the camera starts immediately but the HUD stays hidden behind the Windows lock-screen curtain until a key press or click lifts it.
 
 ---
 
@@ -208,9 +208,11 @@ facegate/
 ├── tools/                 # Administrative and testing utilities
 │   ├── fgcli.cpp          # Engine self-test against reference test vectors
 │   ├── fgcredtest.cpp     # CredUI prompt test harness (non-destructive)
+│   ├── fgoverlaytest.cpp  # Renders the real HUD to PNGs, live curtain test, DLL/sound checks (dev only)
 │   └── fgsetup.cpp        # Enrollment, password vaulting, settings CLI
 ├── install/               # Installation and recovery scripts
-│   ├── install.ps1        # Admin deployment and registry registration
+│   ├── install.cmd        # Double-click launcher: asks for admin, runs install.ps1
+│   ├── install.ps1        # Admin deployment, registration and post-install verification
 │   ├── uninstall.ps1      # Safe removal script
 │   └── RECOVERY.md        # Offline BitLocker and recovery console procedures
 └── bench/                 # Calibration and validation toolset
@@ -299,7 +301,7 @@ Verify that the required ONNX Runtime libraries and pre-trained neural network a
   - `fas_v1se_s4.0.onnx` and `fas_v2_s2.7.onnx` (MiniFASNet dual anti-spoofing models)
   - `canonical_face.bin` and `mesh_edges.bin` (3D reference mesh geometry)
 - `assets/`:
-  - `tile.bmp`, `sfx_scan.wav`, `sfx_unlock.wav`, `sfx_fail.wav`
+  - `tile.bmp`, `sfx_unlock.wav` (the only sound: played once when the face unlock succeeds)
 
 Verify them with PowerShell:
 
@@ -350,12 +352,16 @@ Open an **Administrator PowerShell** window (Right-click Start > Terminal (Admin
 powershell -ExecutionPolicy Bypass -File .\install\install.ps1
 ```
 
+Or simply double-click `install\install.cmd` (it asks for administrator rights and keeps the window open so you can read the result). To only run the pre-flight checks without changing anything, use `.\install\install.ps1 -Check`.
+
 **What this script does:**
+0. Pre-flight: confirms every file is present, the DLL is x64 and newer than the source (otherwise: rebuild), the unlock sound is a PCM WAV, and the provider DLL loads and creates its COM object. If anything fails, nothing is changed.
 1. Creates the production directory `C:\Program Files\FaceGate` and copies all binaries, assets, models, and recovery documentation.
 2. Creates the secure data directory `C:\ProgramData\FaceGate` with restricted Windows Access Control Lists (ACLs): Full Control for `SYSTEM` and `Administrators`, Read/Execute for standard `Users`.
 3. Registers the COM InprocServer32 class `{C188DC15-E41E-4CCF-9DA9-8238E1D0BBDF}` in the Windows Registry (`HKLM\SOFTWARE\Classes\CLSID`).
 4. Registers the provider in `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers`.
-5. Sets `HKLM\SOFTWARE\FaceGate\Enabled = 0` (installed in a **safe, disabled state** until enrollment and verification are complete).
+5. Sets `HKLM\SOFTWARE\FaceGate\Enabled = 0` on a fresh install (a **safe, disabled state** until enrollment and verification are complete). Re-running it to update keeps your faces, password and settings.
+6. Verifies every installed file by hash and every registry value, printing `[ OK ]` / `[FAIL]` for each.
 
 ---
 
@@ -524,7 +530,7 @@ Parameters can be adjusted in the registry using `fgsetup set <Parameter> <Value
 | `ChallengeMs` | `3000` | `2000` - `6000` | Milliseconds allowed for the user to complete the head-turn challenge. |
 | `MaxFails` | `3` | `1` - `5` | Consecutive failed recognitions before falling back exclusively to PIN/password. |
 | `Strictness` | `0` | `0` - `2` | Recognition threshold: `0` = Balanced (0.42), `1` = Strict (0.48), `2` = Relaxed (0.38). |
-| `Sounds` | `1` | `0` or `1` | Play audio feedback cues on scan, success, and rejection (`assets/*.wav`). |
+| `Sounds` | `1` | `0` or `1` | Play the unlock sound (`assets/sfx_unlock.wav`) when the face unlock succeeds. There is no sound on scan start or rejection. |
 | `Camera` | Auto | Device ID | Whitelist substring for the specific USB camera to use. |
 
 Examples:

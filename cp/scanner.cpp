@@ -100,12 +100,14 @@ void Scanner::run() {
         std::vector<fg::Face> faces;
         if (auto f = mesh_->process(frame)) faces.push_back(std::move(*f));
         saw_face = saw_face || !faces.empty();
+        eng.set_hold(hold_);
         const fg::Status& st = eng.step(frame, faces, now_ms());
         set([&](Snapshot& s) {
             s.state = st.state;
             s.hint = widen(st.hint);
             s.progress = st.progress;
             s.direction = st.state == fg::State::Challenge ? st.direction : 0;
+            s.waiting = st.waiting;
             s.has_face = !faces.empty();
             if (s.has_face) {
                 const fg::Face& f = faces[0];
