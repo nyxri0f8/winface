@@ -66,9 +66,10 @@ def save_bmp32(im, path):
     path.write_bytes(header + info + pixels)
 
 
-big = draw(1024)
-save_bmp32(big.resize((192, 192), Image.LANCZOS), ROOT / "assets" / "tile.bmp")
-icon = big.resize((256, 256), Image.LANCZOS)
-icon.save(ROOT / "app" / "WinFace" / "winface.png")
-icon.save(ROOT / "app" / "WinFace" / "winface.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-print("tile.bmp, winface.ico, winface.png written")
+if __name__ == "__main__":
+    big = draw(1024)
+    save_bmp32(big.resize((192, 192), Image.LANCZOS), ROOT / "assets" / "tile.bmp")
+    icon = big.resize((256, 256), Image.LANCZOS)
+    icon.save(ROOT / "app" / "WinFace" / "winface.png")
+    icon.save(ROOT / "app" / "WinFace" / "winface.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    print("tile.bmp, winface.ico, winface.png written")

@@ -1,10 +1,25 @@
 <p align="center">
-  <img src="assets/banner.jpg" alt="WinFace Banner" width="100%">
+  <img src="assets/banner.jpg" alt="WinFace - face unlock for Windows, with the webcam you already have" width="100%">
 </p>
 
-# WinFace
+<h1 align="center">WinFace</h1>
 
-Biometric Face Unlock Credential Provider for Windows 10 and 11.
+<p align="center">
+  <b>Face unlock for Windows 10 and 11 - like Face ID, with the webcam you already have.</b><br>
+  On-device, private, and protected against photos and videos.
+</p>
+
+<p align="center">
+  <a href="https://github.com/nyxri0f8/winface/releases/latest"><img alt="Download" src="https://img.shields.io/github/v/release/nyxri0f8/winface?label=download&color=0A84FF"></a>
+  <img alt="Windows 10 | 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0A84FF">
+  <a href="PRIVACY.md"><img alt="Privacy: on-device" src="https://img.shields.io/badge/privacy-on--device-30D158"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/nyxri0f8/winface/releases/latest"><b>Download WinFace-Setup</b></a> &nbsp;·&nbsp;
+  <a href="#quick-install-winface-setupexe">Install guide</a> &nbsp;·&nbsp;
+  <a href="PRIVACY.md">Privacy policy &amp; warning</a>
+</p>
 
 WinFace provides fast, secure facial recognition logon for standard RGB webcams without requiring proprietary infrared (IR) sensors. It integrates natively into Windows `LogonUI.exe` using a custom C++20 Credential Provider, backed by hardware TPM 2.0 key isolation, on-device neural network inference, and multi-layered anti-spoofing based on 3D geometric parallax.
 
@@ -226,7 +241,7 @@ winface/
 │   ├── migratetest.ps1    # Tests the FaceGate -> WinFace data migration on scratch data (dev only)
 │   ├── fgsetup.cpp        # Enrollment, password vaulting, settings CLI
 │   └── fgsound.cpp        # Plays the unlock sound in its own process (outlives LogonUI)
-├── assets/                # tile.bmp, sfx_unlock.wav (see Credits), banner.jpg
+├── assets/                # tile.bmp + banner.jpg (bench/make_tile.py, make_banner.py), sfx_unlock.wav (see Credits)
 ├── app/WinFace/           # WinFace desktop app (WPF, .NET 8) - drives fgsetup.exe --json
 │   ├── Backend.cs         # Runs fgsetup and streams its JSON lines
 │   ├── SystemInfo.cs      # Smart App Control / TPM / provider / model checks (read-only)
