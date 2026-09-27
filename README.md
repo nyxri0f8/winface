@@ -281,8 +281,8 @@ Install the required developer tools:
 Clone the project to your local workspace:
 
 ```powershell
-git clone https://github.com/nyxri0f8/winface.git %USERPROFILE%\dev\facegate
-cd %USERPROFILE%\dev\facegate
+git clone https://github.com/nyxri0f8/winface.git $env:USERPROFILE\dev\facegate
+cd $env:USERPROFILE\dev\facegate
 ```
 
 ---
