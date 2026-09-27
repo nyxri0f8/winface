@@ -220,43 +220,219 @@ facegate/
 
 ---
 
-## Installation Guide
+## Installation & Setup Guide (Step-by-Step)
 
-### Prerequisites
-- **Operating System**: Windows 10 (64-bit) or Windows 11 (64-bit).
-- **Hardware**: Standard USB webcam (built-in laptop webcam or external USB camera).
-- **Security**: Motherboard TPM 2.0 enabled.
-- **Build Tools**: Visual Studio 2022 with C++ desktop workload and CMake 3.20+.
+Follow this complete walkthrough to install, compile, configure, and activate FaceGate on your system from top to bottom.
 
-### 1. Build the Binaries
-Open a terminal in the repository root:
+---
+
+### Step 1: System & Hardware Verification
+
+Before beginning, ensure your PC meets the following hardware and operating system requirements:
+
+1. **Operating System**: Windows 10 (version 1903 or newer, 64-bit) or Windows 11 (64-bit).
+2. **Processor Architecture**: x86_64 with AVX2 instruction support (Intel Core 4th Gen+ or AMD Zen+).
+3. **Webcam**: Standard integrated laptop camera or external USB webcam (720p 30 FPS or 1080p).
+4. **Hardware TPM 2.0**:
+   - Verify your TPM status by opening an Administrator PowerShell and running:
+     ```powershell
+     Get-Tpm
+     ```
+     Ensure `TpmPresent: True` and `TpmReady: True`.
+   - Alternatively, press `Win + R`, type `tpm.msc`, and verify that the status reports "The TPM is ready for use" (Specification Version: 2.0).
+
+---
+
+### Step 2: Software Prerequisites & Toolchain
+
+FaceGate is built using native C++20 and static runtime linkage to ensure zero external dependency when loaded inside `LogonUI.exe`.
+
+Install the required developer tools:
+
+1. **Git for Windows**:
+   ```powershell
+   winget install --id Git.Git -e --source winget
+   ```
+
+2. **Visual Studio 2022** (Community, Professional, or Enterprise):
+   ```powershell
+   winget install --id Microsoft.VisualStudio.2022.Community --override "--passive --add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended"
+   ```
+   *Required workloads and components:*
+   - **Desktop development with C++**
+   - **MSVC v143 - VS 2022 C++ x64/x86 build tools**
+   - **Windows 10 SDK (10.0.19041.0+) or Windows 11 SDK (10.0.22000.0+)**
+   - **C++ CMake tools for Windows**
+
+3. **CMake** (version 3.20 or newer):
+   ```powershell
+   winget install --id Kitware.CMake -e --source winget
+   ```
+
+---
+
+### Step 3: Clone the Repository
+
+Clone the project to your local workspace:
 
 ```powershell
+git clone https://github.com/nyxri0f8/winface.git C:\Users\nyx41\dev\facegate
+cd C:\Users\nyx41\dev\facegate
+```
+
+---
+
+### Step 4: Verify Runtime Assets and Models
+
+Verify that the required ONNX Runtime libraries and pre-trained neural network assets exist in your repository:
+
+- `third_party/onnxruntime-win-x64-1.24.4/` (C++ headers and `onnxruntime.lib`)
+- `models/runtime/`:
+  - `face_detector.onnx` (MediaPipe SSD BlazeFace detector)
+  - `face_landmarks_detector.onnx` (MediaPipe 478 3D landmark regressor)
+  - `arcface_int8.onnx` (ArcFace quantized 512D biometric embedding model)
+  - `fas_v1se_s4.0.onnx` and `fas_v2_s2.7.onnx` (MiniFASNet dual anti-spoofing models)
+  - `canonical_face.bin` and `mesh_edges.bin` (3D reference mesh geometry)
+- `assets/`:
+  - `tile.bmp`, `sfx_scan.wav`, `sfx_unlock.wav`, `sfx_fail.wav`
+
+Verify them with PowerShell:
+
+```powershell
+Get-ChildItem -Path models\runtime, third_party\onnxruntime-win-x64-1.24.4\lib
+```
+
+---
+
+### Step 5: Build from Source
+
+Generate the build system using CMake and compile the release binaries:
+
+```powershell
+# 1. Configure the build with Release profile
 cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+
+# 2. Build all targets (FaceGateCP.dll, fgsetup.exe, fgcredtest.exe, fgcli.exe)
 cmake --build build --config Release
 ```
 
-The compiled binaries will be generated in `build\Release`:
-- `FaceGateCP.dll` (Credential Provider)
-- `fgsetup.exe` (Management tool)
-- `fgcredtest.exe` (CredUI test tool)
-- `fgcli.exe` (Self-test CLI)
+The resulting binaries will be placed in `build\Release`:
+- `FaceGateCP.dll`: The native Credential Provider loaded by `LogonUI.exe`
+- `fgsetup.exe`: Administrative configuration and enrollment utility
+- `fgcredtest.exe`: Non-destructive CredUI test harness
+- `fgcli.exe`: Offline self-test and verification utility
+- `onnxruntime.dll`: Delay-loaded neural runtime
 
-### 2. Run Engine Verification
-Run the offline vector test to confirm neural network alignment and mathematical parity:
+---
+
+### Step 6: Run Engine Verification (Self-Test)
+
+Before installing into the Windows authentication system, execute the mathematical self-test:
 
 ```powershell
 .\build\Release\fgcli.exe selftest
 ```
 
-### 3. Install to System
-Launch an **Administrator PowerShell** and run:
+This validates that the C++ pipeline reproduces MediaPipe landmarks, ArcFace cosine similarities, and MiniFASNet texture probabilities within strict tolerances against pre-computed test vectors. Ensure the command prints `PASS`.
+
+---
+
+### Step 7: System Installation (Administrator PowerShell)
+
+Open an **Administrator PowerShell** window (Right-click Start > Terminal (Admin) or PowerShell (Admin)), navigate to the repository directory, and run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install\install.ps1
 ```
 
-This installs binaries to `C:\Program Files\FaceGate`, creates the protected data directory `C:\ProgramData\FaceGate`, registers the COM class `{C188DC15-E41E-4CCF-9DA9-8238E1D0BBDF}`, and registers the provider in disabled state (`Enabled = 0`).
+**What this script does:**
+1. Creates the production directory `C:\Program Files\FaceGate` and copies all binaries, assets, models, and recovery documentation.
+2. Creates the secure data directory `C:\ProgramData\FaceGate` with restricted Windows Access Control Lists (ACLs): Full Control for `SYSTEM` and `Administrators`, Read/Execute for standard `Users`.
+3. Registers the COM InprocServer32 class `{C188DC15-E41E-4CCF-9DA9-8238E1D0BBDF}` in the Windows Registry (`HKLM\SOFTWARE\Classes\CLSID`).
+4. Registers the provider in `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers`.
+5. Sets `HKLM\SOFTWARE\FaceGate\Enabled = 0` (installed in a **safe, disabled state** until enrollment and verification are complete).
+
+---
+
+### Step 8: Enroll Your Face Profile
+
+From the **same Administrator terminal**, enroll your primary face profile:
+
+```powershell
+& "C:\Program Files\FaceGate\fgsetup.exe" enroll $env:USERNAME
+```
+
+The terminal will activate your camera and guide you through **5 distinct head poses**:
+1. *Look straight at the camera*
+2. *Slowly turn your head LEFT*
+3. *Slowly turn your head RIGHT*
+4. *Tilt your head UP a little*
+5. *Tilt your head DOWN a little*
+
+The system captures 15 sharp frames per pose (75 frames total) and computes an averaged, normalized 512-dimensional biometric template.
+
+*(Optional)* You can enroll up to 3 distinct profiles (e.g. if you regularly wear glasses or want a secondary profile):
+
+```powershell
+& "C:\Program Files\FaceGate\fgsetup.exe" enroll glasses
+```
+
+---
+
+### Step 9: Store Windows Password in Hardware TPM
+
+To allow Windows LSA to complete workstation unlocks automatically, store your account password:
+
+```powershell
+& "C:\Program Files\FaceGate\fgsetup.exe" password
+```
+
+- Enter your Windows account password when prompted (input is hidden).
+- The setup tool verifies the password with Windows via `LogonUser` before saving anything.
+- An RSA-2048 key is generated in the motherboard TPM 2.0 via `MS_PLATFORM_CRYPTO_PROVIDER`.
+- The key DACL is locked down to `NT AUTHORITY\SYSTEM` using SDDL (`D:P(A;;GA;;;SY)`).
+- Plaintext buffers are wiped from RAM using `SecureZeroMemory`.
+
+Verify that the stored credential matches your account:
+
+```powershell
+& "C:\Program Files\FaceGate\fgsetup.exe" verify
+```
+
+---
+
+### Step 10: Non-Destructive CredUI Test Mode (Recommended)
+
+Before enabling the lock screen, test the full face authentication and password injection path without locking your PC:
+
+1. Enable test mode:
+   ```powershell
+   & "C:\Program Files\FaceGate\fgsetup.exe" mode test
+   ```
+
+2. Open a **normal (non-admin) terminal** and launch the CredUI test harness:
+   ```powershell
+   & "C:\Program Files\FaceGate\fgcredtest.exe"
+   ```
+
+3. The standard "Windows Security" credential prompt will appear with the "Face unlock" tile.
+4. Look at the camera and complete the head turn challenge.
+5. The tool will verify that face recognition passed, the password was decrypted from the vault, and Windows accepted the logon credentials (`RESULT: Windows accepted the credential - face unlock path works`).
+
+---
+
+### Step 11: Activate Lock Screen Face Unlock
+
+Once the CredUI test passes, activate full lock screen authentication from an Administrator terminal:
+
+```powershell
+& "C:\Program Files\FaceGate\fgsetup.exe" mode lock
+```
+
+Now press `Win + L` to lock your workstation. The FaceGate HUD will appear at the top of the screen:
+1. Look directly at your camera.
+2. When prompted, complete the subtle head turn challenge (arrow left or right).
+3. The ring will complete, turn green, and unlock your desktop!
 
 ---
 

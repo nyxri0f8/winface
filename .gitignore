@@ -25,3 +25,5 @@ third_party/
 __pycache__/
 *.pyc
 assets/tile_preview.png
+brag-output/
+*.mp4
