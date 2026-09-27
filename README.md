@@ -240,6 +240,11 @@ Before beginning, ensure your PC meets the following hardware and operating syst
      ```
      Ensure `TpmPresent: True` and `TpmReady: True`.
    - Alternatively, press `Win + R`, type `tpm.msc`, and verify that the status reports "The TPM is ready for use" (Specification Version: 2.0).
+5. **Windows 11 Smart App Control (SAC)**:
+   - Because FaceGate is compiled locally from source code without an expensive commercial EV Authenticode certificate, Windows 11 **Smart App Control (SAC)** in "On" mode will block unsigned `.dll` binaries from loading into `LogonUI.exe`.
+   - Ensure Smart App Control is set to **Off** or **Evaluation** mode in:
+     `Windows Security` > `App & browser control` > `Smart App Control settings`.
+   - If Smart App Control is strictly **On**, it blocks local developer-built binaries from executing. Alternatively, sign the compiled binaries with a local self-signed certificate (see [Troubleshooting](#windows-11-smart-app-control-sac--defender-blocks)).
 
 ---
 
@@ -545,6 +550,19 @@ To list all detected video capture devices and verify USB hardware qualification
 ```powershell
 & "C:\Program Files\FaceGate\fgsetup.exe" cameras
 ```
+
+### Windows 11 Smart App Control (SAC) / Defender Blocks
+If the FaceGate tile does not appear on the lock screen or if `fgsetup.exe` fails with an execution block error:
+- Windows 11 Smart App Control (SAC) strictly blocks unsigned `.dll` and `.exe` binaries from loading into system processes like `LogonUI.exe`.
+- **Option A (Recommended)**: Set Smart App Control to **Off** or **Evaluation** mode in **Windows Security > App & browser control > Smart App Control settings**.
+- **Option B (Self-Signing)**: Generate a local code-signing certificate and sign the binaries locally:
+  ```powershell
+  $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=FaceGate Local" -CertStoreLocation "Cert:\CurrentUser\My"
+  Export-Certificate -Cert $cert -FilePath "$env:TEMP\FaceGateLocal.cer"
+  Import-Certificate -FilePath "$env:TEMP\FaceGateLocal.cer" -CertStoreLocation "Cert:\LocalMachine\Root"
+  Set-AuthenticodeSignature -FilePath "C:\Program Files\FaceGate\FaceGateCP.dll" -Certificate $cert
+  Set-AuthenticodeSignature -FilePath "C:\Program Files\FaceGate\fgsetup.exe" -Certificate $cert
+  ```
 
 ---
 
