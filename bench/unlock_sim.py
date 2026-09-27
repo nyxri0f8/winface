@@ -56,9 +56,9 @@ def embed(c):
 
 
 # templates must come from the same (int8) model that runs at unlock time; precomputed like the real product
-cache = Path(__file__).parent / "data" / "nyx41_arcface_int8.npy"
+cache = Path(__file__).parent / "data" / "templates_arcface_int8.npy"
 if not cache.exists():
-    np.save(cache, np.stack([embed(c) for c in np.load(cache.with_name("nyx41.npz"))["crops"]]))
+    np.save(cache, np.stack([embed(c) for c in np.load(cache.with_name("crops.npz"))["crops"]]))
     print("templates cached - run again for a real timing")
     sys.exit()
 templates = np.load(cache)

@@ -47,7 +47,7 @@ if ($null -eq (Get-ItemProperty 'HKLM:\SOFTWARE\FaceGate' -Name Enabled -ErrorAc
 Write-Host ""
 Write-Host "Installed. FaceGate is registered but DISABLED."
 Write-Host "Next (same admin terminal):"
-Write-Host "  & '$dest\fgsetup.exe' enroll nyx41"
+Write-Host "  & '$dest\fgsetup.exe' enroll $env:USERNAME"
 Write-Host "  & '$dest\fgsetup.exe' password"
 Write-Host "  & '$dest\fgsetup.exe' mode test"
 Write-Host "Then in a NORMAL terminal:  & '$dest\fgcredtest.exe'"

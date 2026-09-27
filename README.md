@@ -275,7 +275,7 @@ Displays the active operational mode, enrolled face count, password status, whit
 Enrolls a face profile. The interactive terminal guides you through 5 head poses (Straight, Turn Left, Turn Right, Tilt Up, Tilt Down), capturing 15 frames per pose. You can enroll up to 3 distinct profiles (e.g., standard, with glasses, or secondary user):
 
 ```powershell
-& "C:\Program Files\FaceGate\fgsetup.exe" enroll nyx41
+& "C:\Program Files\FaceGate\fgsetup.exe" enroll <username>
 ```
 
 To enroll a second profile:

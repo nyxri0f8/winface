@@ -15,7 +15,7 @@ from onnxruntime.quantization.shape_inference import quant_pre_process
 
 ROOT = Path(__file__).resolve().parents[1]
 MODELS = ROOT / "models"
-crops = np.load(Path(__file__).parent / "data" / "nyx41.npz")["crops"]
+crops = np.load(Path(__file__).parent / "data" / "crops.npz")["crops"]
 
 
 def prep(c):
