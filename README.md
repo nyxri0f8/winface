@@ -59,7 +59,7 @@ FaceGate bridges this gap by combining modern computer vision with low-level Win
 The Windows password is required by Local Security Authority Subsystem Service (LSASS) to construct an interactive Kerberos or NTLM logon token. Storing credentials insecurely creates a critical vulnerability. FaceGate hardens this storage using the hardware TPM:
 - A unique RSA-2048 key is created in the TPM via `MS_PLATFORM_CRYPTO_PROVIDER`.
 - When stored, the key's Security Descriptor (DACL) is restricted strictly to Local System (`NT AUTHORITY\SYSTEM`) using the SDDL string `D:P(A;;GA;;;SY)`.
-- **Impact**: Even an elevated local Administrator in a standard user session cannot decrypt the stored password. Only `LogonUI.exe` executing as `SYSTEM` on the secure lock screen can access the private key.
+- **Impact**: Normal programs cannot read or decrypt the stored password, but anything running with admin rights can (an admin can run code as `SYSTEM`). Only `SYSTEM` (such as `LogonUI.exe` on the secure lock screen, or processes elevated to `SYSTEM` by an administrator) can access the private key.
 - The password file (`%ProgramData%\FaceGate\secret.tpm`) is bound to the physical machine's TPM and is cryptographically useless if copied to another machine.
 
 ### 2. Zero-IPC In-Process Execution
@@ -281,8 +281,8 @@ Install the required developer tools:
 Clone the project to your local workspace:
 
 ```powershell
-git clone https://github.com/nyxri0f8/winface.git C:\Users\nyx41\dev\facegate
-cd C:\Users\nyx41\dev\facegate
+git clone https://github.com/nyxri0f8/winface.git %USERPROFILE%\dev\facegate
+cd %USERPROFILE%\dev\facegate
 ```
 
 ---
