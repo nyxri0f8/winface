@@ -214,6 +214,7 @@ flowchart TD
 
 ```
 winface/
+├── LICENSE                # Apache License 2.0
 ├── PRIVACY.md             # Privacy policy and warning (installer + app ask you to agree)
 ├── CMakeLists.txt         # Build definition (C++20, static CRT, CFG, SDL, DelayLoad)
 ├── cp/                    # Credential Provider (loaded by LogonUI.exe)
@@ -791,4 +792,4 @@ If you can sign in using your PIN or password:
 
 ## License
 
-This project is licensed under the Apache License 2.0. Third-party neural network architectures and models (MediaPipe, ArcFace, MiniFASNet) belong to their respective authors and are subject to their respective licenses.
+This project is licensed under the [Apache License 2.0](LICENSE). Third-party neural network architectures and models (MediaPipe, ArcFace, MiniFASNet) belong to their respective authors and are subject to their respective licenses.
