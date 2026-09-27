@@ -31,7 +31,7 @@ struct Status {
     State state = State::Search;
     std::string hint, reason, profile;
     int direction = 0;          // -1 = LEFT, +1 = RIGHT during the challenge
-    float progress = 0;         // 0..1 for the ring animation
+    float progress = 0;         // 0..1 overall scan progress (drives the HUD)
     bool waiting = false;       // held (prompt not visible) with an enrolled face already recognised
     float score = 0, texture = 0, texture_med = 0, yaw = 0, turn = 0;
     double nonplanar = 0;

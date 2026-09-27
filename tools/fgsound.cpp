@@ -1,6 +1,7 @@
 // Plays the unlock sound to the end. The credential provider starts this as its own process because LogonUI
 // exits a moment after a successful sign-in and would cut an in-process sound off after ~1 s.
 // Deliberately takes no arguments: it runs as SYSTEM, so it only ever plays assets\sfx_unlock.wav next to itself.
+// Sound credit: "Key Videogame SFX" by mrstokes302 (Pixabay, ID 423629) - see README, Credits.
 #include <windows.h>
 #include <mmsystem.h>
 #include <shlwapi.h>

@@ -37,6 +37,7 @@ FaceGate provides fast, secure facial recognition logon for standard RGB webcams
 - [Configuration Settings](#configuration-settings)
 - [Troubleshooting & Logs](#troubleshooting--logs)
 - [Emergency Recovery Procedure](#emergency-recovery-procedure)
+- [Credits](#credits)
 
 ---
 
@@ -49,7 +50,9 @@ FaceGate bridges this gap by combining modern computer vision with low-level Win
 - **Native Credential Provider V2**: Implements `ICredentialProvider`, `ICredentialProviderCredential2`, and `ICredentialProviderSetUserArray` directly in C++20.
 - **In-Process ONNX Inference**: MediaPipe Face Mesh (478 3D landmarks) and ArcFace (512-dimensional embeddings) executed on-device via ONNX Runtime without external runtimes or background daemons.
 - **Hardware Cryptography**: User credentials are encrypted using an RSA-2048 key sealed inside the motherboard's Trusted Platform Module (TPM 2.0).
-- **Direct Winlogon Overlay**: A 32-bit premultiplied alpha layered window attaches directly to the secure Winlogon desktop, rendering a minimal monochrome Face ID-style glyph (corner brackets that morph into a check-mark circle on success, a head-shake on rejection) at ~60 FPS with zero camera pixels displayed or stored. On the lock/sign-in screen the camera starts immediately but the HUD stays hidden behind the Windows lock-screen curtain until a key press or click lifts it.
+- **Direct Winlogon Overlay**: A 32-bit premultiplied alpha layered window attaches directly to the secure Winlogon desktop, rendering a minimal monochrome Face ID-style glyph at ~60 FPS with zero camera pixels displayed or stored: corner brackets frame a simple face that follows your head, two chevrons point the way during the head turn, the brackets morph into a circle with a check mark on success, and the glyph shakes on rejection.
+- **Windows Hello-style Lock Screen Flow**: The camera starts as soon as the lock screen appears, but nothing is drawn over the lock-screen picture (date and time). As soon as the camera recognises an enrolled face, FaceGate lifts the lock screen by itself and the sign-in page appears with the face HUD already asking for the head turn. A key press or click also lifts it, exactly as without FaceGate.
+- **Unlock Sound**: A single sound plays on a successful unlock (none on scan start or rejection). It is played by a separate helper, `fgsound.exe`, so it is not cut off when `LogonUI.exe` exits right after sign-in.
 
 ---
 
@@ -93,6 +96,8 @@ Standard 2D face recognition is vulnerable to presentation attacks (photos, tabl
   $$\text{Residual} = \text{median}\left(\frac{\|\mathbf{H}\mathbf{x}_i - \mathbf{x}'_i\|}{\text{face\_width}}\right)$$
 
   If $\text{Residual} < 0.025$, the rotation is geometrically flat and rejected as a photo/screen attack.
+- **Identity Continuity During the Turn**: Before the challenge starts, the face must match frontally (3 of the last 5 frames at cosine similarity $\geq 0.42$). During the turn the head pose naturally lowers ArcFace scores, so each frame only has to stay above a floor of $\max(\text{match} - 0.08,\ 0.34)$, with a single motion-blurred frame forgiven. The floor stays above the best stranger in the LFW calibration (0.313), so a different face swapped in mid-turn is still rejected, and the frame that completes the turn must itself pass.
+- **Lock-Screen Lift**: Only a recognised enrolled face lifts the lock screen automatically (FaceGate sends a Shift tap and a click in the empty top-left corner from the sign-in desktop). Lifting it grants nothing: it only shows the same sign-in page a key press would.
 
 ### 6. Camera Hardware Enforcement
 - Software cameras (OBS Virtual Camera, ManyCam, DroidCam, etc.) create virtual device links such as `swd#` or `root#`.
@@ -130,11 +135,12 @@ flowchart TD
         Q --> R[LSASS Authentication]
     end
 
-    subgraph Display ["Visual Feedback"]
+    subgraph Display ["Visual & Audio Feedback"]
         E --> S[32-bit Layered GDI+ Window]
-        S --> T[36-Tick Progress Ring]
-        S --> U[Real-time Landmark Wireframe]
+        S --> T["Face ID-style Glyph (brackets morph into a check-mark circle)"]
+        S --> U["Curtain Watcher (key / click / recognised face lifts the lock screen)"]
         S --> V[Display State Listener]
+        E --> W["fgsound.exe (unlock sound, outlives LogonUI)"]
     end
 ```
 
@@ -164,7 +170,10 @@ flowchart TD
     MatchScore -- Yes --> TextureCheck{Dual MiniFASNet\nTexture Score >= 0.60}
     TextureCheck -- No --> Detect
 
-    TextureCheck -- Yes --> Challenge[Generate CSPRNG Direction\nTurn Head Left or Right]
+    TextureCheck -- Yes --> Visible{Sign-in Page\nVisible?}
+    Visible -- "No (lock-screen picture up)" --> Lift[Hold the Head Turn\nLift the Lock Screen Automatically]
+    Lift --> Challenge
+    Visible -- Yes --> Challenge[Generate CSPRNG Direction\nTurn Head Left or Right]
     Challenge --> TrackTurn[Track Yaw Angle & Landmark Trajectories]
 
     TrackTurn --> TurnCheck{Turn >= 12 deg in\nExpected Direction?}
@@ -175,7 +184,7 @@ flowchart TD
     ParallaxCheck -- "No (Flat Planar Motion)" --> SpoofDetected[Reject: Flat Media / Screen Detected]
     SpoofDetected --> Fail
 
-    ParallaxCheck -- "Yes (Real 3D Depth)" --> IdentityMaintained{Identity Match Maintained\nDuring Turn?}
+    ParallaxCheck -- "Yes (Real 3D Depth)" --> IdentityMaintained{Identity Maintained During Turn?\nEvery frame >= 0.34 floor\n(one blurred frame forgiven)}
     IdentityMaintained -- No --> Fail
     IdentityMaintained -- Yes --> UnlockSuccess[Issue Proof Token & Trigger Auto-Logon]
 ```
@@ -209,7 +218,9 @@ facegate/
 │   ├── fgcli.cpp          # Engine self-test against reference test vectors
 │   ├── fgcredtest.cpp     # CredUI prompt test harness (non-destructive)
 │   ├── fgoverlaytest.cpp  # Renders the real HUD to PNGs, live curtain test, DLL/sound checks (dev only)
-│   └── fgsetup.cpp        # Enrollment, password vaulting, settings CLI
+│   ├── fgsetup.cpp        # Enrollment, password vaulting, settings CLI
+│   └── fgsound.cpp        # Plays the unlock sound in its own process (outlives LogonUI)
+├── assets/                # tile.bmp, sfx_unlock.wav (see Credits), banner.jpg
 ├── install/               # Installation and recovery scripts
 │   ├── install.cmd        # Double-click launcher: asks for admin, runs install.ps1
 │   ├── install.ps1        # Admin deployment, registration and post-install verification
@@ -299,7 +310,8 @@ Verify that the required ONNX Runtime libraries and pre-trained neural network a
   - `face_landmarks_detector.onnx` (MediaPipe 478 3D landmark regressor)
   - `arcface_int8.onnx` (ArcFace quantized 512D biometric embedding model)
   - `fas_v1se_s4.0.onnx` and `fas_v2_s2.7.onnx` (MiniFASNet dual anti-spoofing models)
-  - `canonical_face.bin` and `mesh_edges.bin` (3D reference mesh geometry)
+  - `canonical_face.bin` (3D reference face geometry)
+  - `mesh_edges.bin` is only used by the Python bench previews; the lock-screen HUD no longer needs it
 - `assets/`:
   - `tile.bmp`, `sfx_unlock.wav` (the only sound: played once when the face unlock succeeds)
 
@@ -319,7 +331,7 @@ Generate the build system using CMake and compile the release binaries:
 # 1. Configure the build with Release profile
 cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 
-# 2. Build all targets (FaceGateCP.dll, fgsetup.exe, fgcredtest.exe, fgcli.exe)
+# 2. Build all targets (FaceGateCP.dll, fgsetup.exe, fgcredtest.exe, fgsound.exe, fgcli.exe, fgoverlaytest.exe)
 cmake --build build --config Release
 ```
 
@@ -327,7 +339,9 @@ The resulting binaries will be placed in `build\Release`:
 - `FaceGateCP.dll`: The native Credential Provider loaded by `LogonUI.exe`
 - `fgsetup.exe`: Administrative configuration and enrollment utility
 - `fgcredtest.exe`: Non-destructive CredUI test harness
+- `fgsound.exe`: Unlock sound player started by the credential provider (no window, no arguments)
 - `fgcli.exe`: Offline self-test and verification utility
+- `fgoverlaytest.exe`: Developer check of the lock-screen HUD, provider DLL and sound (not installed)
 - `onnxruntime.dll`: Delay-loaded neural runtime
 
 ---
@@ -342,6 +356,17 @@ Before installing into the Windows authentication system, execute the mathematic
 
 This validates that the C++ pipeline reproduces MediaPipe landmarks, ArcFace cosine similarities, and MiniFASNet texture probabilities within strict tolerances against pre-computed test vectors. Ensure the command prints `PASS`.
 
+*(Optional)* Check the lock-screen pieces without locking your PC:
+
+```powershell
+.\build\Release\fgoverlaytest.exe live                                # HUD hidden until a key press / recognised face
+.\build\Release\fgoverlaytest.exe dll .\build\Release\FaceGateCP.dll  # loads the provider like LogonUI does
+.\build\Release\fgoverlaytest.exe wav .\assets\sfx_unlock.wav         # sound format check (silent)
+.\build\Release\fgoverlaytest.exe render $env:TEMP\hud                # renders the animation to PNG frames
+```
+
+`live` briefly shows the HUD at the top of your screen and simulates an F24 key press; every line should read `PASS`.
+
 ---
 
 ### Step 7: System Installation (Administrator PowerShell)
@@ -352,11 +377,17 @@ Open an **Administrator PowerShell** window (Right-click Start > Terminal (Admin
 powershell -ExecutionPolicy Bypass -File .\install\install.ps1
 ```
 
-Or simply double-click `install\install.cmd` (it asks for administrator rights and keeps the window open so you can read the result). To only run the pre-flight checks without changing anything, use `.\install\install.ps1 -Check`.
+Or simply double-click `install\install.cmd` (it asks for administrator rights and keeps the window open so you can read the result).
+
+Two dry-run options that need no admin rights and change nothing on the system:
+- `.\install\install.ps1 -Check`: only the pre-flight checks.
+- `.\install\install.ps1 -StageTo <folder>`: copies and hash-verifies everything into `<folder>` (no registry changes).
+
+To **update** an existing install after pulling new code, rebuild (Step 5) and run the installer again, then restart once so `LogonUI.exe` loads the new DLL. Your faces, password and settings are kept.
 
 **What this script does:**
 0. Pre-flight: confirms every file is present, the DLL is x64 and newer than the source (otherwise: rebuild), the unlock sound is a PCM WAV, and the provider DLL loads and creates its COM object. If anything fails, nothing is changed.
-1. Creates the production directory `C:\Program Files\FaceGate` and copies all binaries, assets, models, and recovery documentation.
+1. Creates the production directory `C:\Program Files\FaceGate` and copies all binaries (including `fgsound.exe`), assets, models, and recovery documentation. Files left by older versions (`sfx_scan.wav`, `sfx_fail.wav`, `mesh_edges.bin`, a previously loaded DLL moved aside) are removed.
 2. Creates the secure data directory `C:\ProgramData\FaceGate` with restricted Windows Access Control Lists (ACLs): Full Control for `SYSTEM` and `Administrators`, Read/Execute for standard `Users`.
 3. Registers the COM InprocServer32 class `{C188DC15-E41E-4CCF-9DA9-8238E1D0BBDF}` in the Windows Registry (`HKLM\SOFTWARE\Classes\CLSID`).
 4. Registers the provider in `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers`.
@@ -440,10 +471,11 @@ Once the CredUI test passes, activate full lock screen authentication from an Ad
 & "C:\Program Files\FaceGate\fgsetup.exe" mode lock
 ```
 
-Now press `Win + L` to lock your workstation. The FaceGate HUD will appear at the top of the screen:
-1. Look directly at your camera.
-2. When prompted, complete the subtle head turn challenge (arrow left or right).
-3. The ring will complete, turn green, and unlock your desktop!
+Now press `Win + L` to lock your workstation (restart once first if you just installed or updated):
+1. The normal lock screen (date and time) appears, with nothing drawn over it. The camera is already looking.
+2. Look at your camera. When it recognises you, the lock screen lifts by itself and the sign-in page appears with the FaceGate HUD at the top. (Pressing any key or clicking also lifts it.)
+3. Turn your head slightly in the direction the chevrons point.
+4. The brackets close into a circle, a check mark draws in, the unlock sound plays, and your desktop opens.
 
 ---
 
@@ -528,9 +560,9 @@ Parameters can be adjusted in the registry using `fgsetup set <Parameter> <Value
 | :--- | :---: | :---: | :--- |
 | `SearchMs` | `7000` | `3000` - `15000` | Milliseconds to search for a matching face before timing out. |
 | `ChallengeMs` | `3000` | `2000` - `6000` | Milliseconds allowed for the user to complete the head-turn challenge. |
-| `MaxFails` | `3` | `1` - `5` | Consecutive failed recognitions before falling back exclusively to PIN/password. |
+| `MaxFails` | `3` | `1` - `5` | Consecutive failed recognitions before falling back exclusively to PIN/password. Scans that ran while the lock-screen picture was still up, or that never saw a face in range, do not count. |
 | `Strictness` | `0` | `0` - `2` | Recognition threshold: `0` = Balanced (0.42), `1` = Strict (0.48), `2` = Relaxed (0.38). |
-| `Sounds` | `1` | `0` or `1` | Play the unlock sound (`assets/sfx_unlock.wav`) when the face unlock succeeds. There is no sound on scan start or rejection. |
+| `Sounds` | `1` | `0` or `1` | Play the unlock sound (`assets/sfx_unlock.wav`, via `fgsound.exe`) when the face unlock succeeds. There is no sound on scan start or rejection. |
 | `Camera` | Auto | Device ID | Whitelist substring for the specific USB camera to use. |
 
 Examples:
@@ -557,6 +589,23 @@ To list all detected video capture devices and verify USB hardware qualification
 & "C:\Program Files\FaceGate\fgsetup.exe" cameras
 ```
 
+Useful log lines:
+
+| Log line | Meaning |
+| :--- | :--- |
+| `overlay revealed by face recognised behind the lock screen` | The camera recognised you and lifted the lock screen by itself. |
+| `overlay revealed by user input` | A key press or click lifted the lock screen first. |
+| `idle: waited behind the lock screen, no key pressed` | The lock screen stayed up for the whole search time; not counted as a failed attempt. |
+| `identity lost during challenge (0.xx)` | The face dropped below the 0.34 floor twice during the head turn (usually turning too far or too fast). |
+| `challenge not completed in time` | The head turn was not finished within `ChallengeMs`. |
+| `fgsound.exe failed to start` | The sound fell back to in-process playback and may be cut short; re-run the installer. |
+
+### The face HUD appears on top of the lock-screen picture
+The lock screen did not react to FaceGate's automatic lift (a Shift tap plus a click in the empty top-left corner). Pressing any key still works. Please report it with the last 30 log lines.
+
+### The unlock sound is cut off
+The sound is played by `C:\Program Files\FaceGate\fgsound.exe`. If that file is missing, the provider plays the sound inside `LogonUI.exe`, which exits about a second after sign-in. Re-run the installer to restore it.
+
 ### Windows 11 Smart App Control (SAC) / Defender Blocks
 If the FaceGate tile does not appear on the lock screen or if `fgsetup.exe` fails with an execution block error:
 - Windows 11 Smart App Control (SAC) strictly blocks unsigned `.dll` and `.exe` binaries from loading into system processes like `LogonUI.exe`.
@@ -568,6 +617,7 @@ If the FaceGate tile does not appear on the lock screen or if `fgsetup.exe` fail
   Import-Certificate -FilePath "$env:TEMP\FaceGateLocal.cer" -CertStoreLocation "Cert:\LocalMachine\Root"
   Set-AuthenticodeSignature -FilePath "C:\Program Files\FaceGate\FaceGateCP.dll" -Certificate $cert
   Set-AuthenticodeSignature -FilePath "C:\Program Files\FaceGate\fgsetup.exe" -Certificate $cert
+  Set-AuthenticodeSignature -FilePath "C:\Program Files\FaceGate\fgsound.exe" -Certificate $cert
   ```
 
 ---
@@ -612,6 +662,13 @@ If you can sign in using your PIN or password:
    reg unload HKLM\OFFSOFT
    ```
 6. Type `exit` and select **Continue** to boot into Windows. The default Windows sign-in screen will be restored.
+
+---
+
+## Credits
+
+- **Unlock sound** (`assets/sfx_unlock.wav`): "Key Videogame SFX" by **mrstokes302**, from [Pixabay](https://pixabay.com/) (sound ID 423629), used under the [Pixabay Content License](https://pixabay.com/service/license-summary/). Converted from MP3 to 16-bit PCM WAV with the leading silence trimmed; otherwise unchanged.
+- **Models**: MediaPipe Face Detector and Face Landmarker (Google), ArcFace, and MiniFASNet (Silent-Face-Anti-Spoofing) belong to their respective authors; see [License](#license).
 
 ---
 

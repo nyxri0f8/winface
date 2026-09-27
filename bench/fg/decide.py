@@ -43,7 +43,7 @@ class Status:
     hint: str = ""
     direction: str = ""          # LEFT / RIGHT during CHALLENGE
     profile: str = ""
-    progress: float = 0.0        # 0..1 for the ring animation
+    progress: float = 0.0        # 0..1 overall scan progress (drives the HUD / bench ring)
     reason: str = ""
     signals: dict = field(default_factory=dict)
 

@@ -1,5 +1,6 @@
 """Build runtime assets for the lock-screen component:
   models/runtime/mesh_edges.bin   uint16 pairs: tessellation edges, then contour edges (header: 2 x uint32 counts)
+                                  (only for the bench previews - the lock-screen HUD no longer draws the mesh)
 (assets/sfx_unlock.wav is a user-supplied clip and is not generated here)
 """
 from pathlib import Path
