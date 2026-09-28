@@ -21,6 +21,19 @@
   <a href="PRIVACY.md">Privacy policy &amp; warning</a>
 </p>
 
+## Watch: How WinFace Works (2:34)
+
+<p align="center">
+  <a href="assets/winface-explainer.mp4"><img src="assets/video-poster.jpg" alt="Watch the WinFace explainer video: how it works, how to install and set it up, and its security layers" width="80%"></a>
+</p>
+
+<p align="center">
+  How it works (camera → on-device engine → liveness → TPM-sealed password → Windows), how to install <b>WinFace-Setup.exe</b>,<br>
+  the guided setup, the security layers, privacy and auto-updates - with subtitles.<br>
+  <a href="assets/winface-explainer.mp4">Watch here</a> &nbsp;·&nbsp;
+  <a href="https://github.com/nyxri0f8/winface/releases/download/v1.1.0/WinFace-Explainer-1080p.mp4">Download full quality (1080p)</a>
+</p>
+
 WinFace provides fast, secure facial recognition logon for standard RGB webcams without requiring proprietary infrared (IR) sensors. It integrates natively into Windows `LogonUI.exe` using a custom C++20 Credential Provider, backed by hardware TPM 2.0 key isolation, on-device neural network inference, and multi-layered anti-spoofing based on 3D geometric parallax.
 
 ---
@@ -36,6 +49,7 @@ WinFace provides fast, secure facial recognition logon for standard RGB webcams 
 
 ## Table of Contents
 
+- [Watch: How WinFace Works](#watch-how-winface-works-234)
 - [Architectural Overview](#architectural-overview)
 - [Security Architecture & Threat Model](#security-architecture--threat-model)
   - [Hardware TPM 2.0 Cryptographic Vault](#1-hardware-tpm-20-cryptographic-vault)
@@ -251,7 +265,8 @@ winface/
 │   ├── migratetest.ps1    # Tests the FaceGate -> WinFace data migration on scratch data (dev only)
 │   ├── fgsetup.cpp        # Enrollment, password vaulting, settings CLI
 │   └── fgsound.cpp        # Plays the unlock sound in its own process (outlives LogonUI)
-├── assets/                # tile.bmp + banner.jpg (bench/make_tile.py, make_banner.py), sfx_unlock.wav (see Credits)
+├── assets/                # tile.bmp + banner.jpg (bench/make_tile.py, make_banner.py), sfx_unlock.wav (see Credits),
+│                          #   winface-explainer.mp4 + video-poster.jpg (the explainer video)
 ├── UPDATES.md             # Changelog; each version's section is its release notes and the update dialog text
 ├── app/WinFaceUpdater/    # Update checker (no admin): GitHub Releases -> "Update now" dialog -> verified silent update
 ├── app/WinFace/           # WinFace desktop app (WPF, .NET 8) - drives fgsetup.exe --json
@@ -845,6 +860,7 @@ Please report vulnerabilities privately - see **[SECURITY.md](SECURITY.md)** for
 - **Anti-spoofing**: MiniFASNet from Silent-Face-Anti-Spoofing by minivision (Apache 2.0).
 - **Face recognition**: InsightFace `buffalo_l` / `w600k_r50` (ArcFace) - **non-commercial research use only**. Not redistributed: WinFace-Setup downloads it from InsightFace's official release after you accept its licence.
 - **Runtime**: ONNX Runtime (MIT).
+- **Explainer video** (`assets/winface-explainer.mp4`): animated with [HyperFrames](https://hyperframes.heygen.com/); narration by the Kokoro-82M text-to-speech model (Apache 2.0, voice `af_heart`), subtitles timed with whisper.cpp (MIT); the music bed is original, synthesized for the video; app screens are real WinFace screenshots.
 
 ---
 

@@ -27,6 +27,7 @@ __pycache__/
 assets/tile_preview.png
 brag-output/
 *.mp4
+!assets/winface-explainer.mp4
 
 # installer output
 dist/
