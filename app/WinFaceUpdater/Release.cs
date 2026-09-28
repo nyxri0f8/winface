@@ -130,7 +130,7 @@ public static class Notes
     {
         var list = new List<Section>();
         Section? cur = null;
-        foreach (var raw in md.Replace("\r", "").Split('\n'))
+        foreach (var raw in md.Replace("\r", "").Replace("﻿", "").Split('\n'))   // a stray BOM would hide the first heading
         {
             string line = raw.Trim();
             if (line.Length == 0 || line.StartsWith("SHA-256", StringComparison.OrdinalIgnoreCase)) continue;

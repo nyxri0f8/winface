@@ -33,7 +33,7 @@ Download **WinFace-Setup-$Version.exe** below and run it (turn Smart App Control
 SHA-256 of WinFace-Setup-${Version}.exe: ``$sha``
 "@
 $notesFile = Join-Path $env:TEMP "winface-notes-$Version.md"
-Set-Content $notesFile $body -Encoding utf8
+[IO.File]::WriteAllText($notesFile, $body, (New-Object Text.UTF8Encoding $false))   # no BOM: it would end up in the notes
 git push origin HEAD
 $ghArgs = @("release", "create", "v$Version", $setup, "$setup.sha256", "--target", "main", "--title", "WinFace $Version", "--notes-file", $notesFile)
 if ($Draft) { $ghArgs += "--draft" }
