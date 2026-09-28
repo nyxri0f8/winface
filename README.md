@@ -24,12 +24,12 @@
 ## Watch: How WinFace Works (2:34)
 
 <p align="center">
-  <a href="assets/winface-explainer.mp4"><img src="assets/video-poster.jpg" alt="Watch the WinFace explainer video: how it works, how to install and set it up, and its security layers" width="80%"></a>
+  <a href="assets/winface-explainer.mp4"><img src="assets/winface-preview.gif" alt="WinFace explainer preview - click to watch the full video with sound" width="80%"></a>
 </p>
 
 <p align="center">
   How it works (camera → on-device engine → liveness → TPM-sealed password → Windows), how to install <b>WinFace-Setup.exe</b>,<br>
-  the guided setup, the security layers, privacy and auto-updates - with subtitles.<br>
+  the guided setup, the security layers, privacy and auto-updates - with subtitles. <i>Click the preview for the full video with sound.</i><br>
   <a href="assets/winface-explainer.mp4">Watch here</a> &nbsp;·&nbsp;
   <a href="https://github.com/nyxri0f8/winface/releases/download/v1.1.0/WinFace-Explainer-1080p.mp4">Download full quality (1080p)</a>
 </p>
@@ -266,7 +266,7 @@ winface/
 │   ├── fgsetup.cpp        # Enrollment, password vaulting, settings CLI
 │   └── fgsound.cpp        # Plays the unlock sound in its own process (outlives LogonUI)
 ├── assets/                # tile.bmp + banner.jpg (bench/make_tile.py, make_banner.py), sfx_unlock.wav (see Credits),
-│                          #   winface-explainer.mp4 + video-poster.jpg (the explainer video)
+│                          #   winface-explainer.mp4 + winface-preview.gif (the explainer video and its preview)
 ├── UPDATES.md             # Changelog; each version's section is its release notes and the update dialog text
 ├── app/WinFaceUpdater/    # Update checker (no admin): GitHub Releases -> "Update now" dialog -> verified silent update
 ├── app/WinFace/           # WinFace desktop app (WPF, .NET 8) - drives fgsetup.exe --json
