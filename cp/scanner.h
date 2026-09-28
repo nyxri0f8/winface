@@ -23,6 +23,10 @@ struct Snapshot {
     std::vector<fg::Pt> mesh;   // 478 points normalised: centre (0,0), face height ~= 1
     bool running = false;
     bool waiting = false;       // recognised you behind the lock-screen curtain, waiting to show the head-turn prompt
+    int stage = 0;              // fg::Stage
+    int action = 0;             // fg::Action during the action stage
+    double flash_t0 = 0;        // flash timeline start (steady-clock ms), see fg::flash_colour_at
+    int flash_rgb[2] = {0, 0};
 };
 
 class Scanner {
@@ -34,7 +38,10 @@ public:
 
     void start();        // no-op if already scanning
     void stop();         // camera off, thread joined
-    void set_hold(bool h) { hold_ = h; }   // true: recognise but don't ask for the head turn (prompt not visible)
+    void set_hold(bool h) { hold_ = h; }
+    void set_extras(bool on) { extras_ = on; }   // this scan includes the flash + blink/mouth checks   // true: recognise but don't ask for the head turn (prompt not visible)
+    // after a counted failed attempt: store an encrypted snapshot of the last face seen (if enabled in Settings)
+    void save_intruder_photo(const std::string& reason);
     Snapshot snapshot();
 
 private:
@@ -44,7 +51,8 @@ private:
     Done done_;
     Config cfg_;
     std::thread th_;
-    std::atomic<bool> stop_{false}, running_{false}, hold_{false};
+    std::atomic<bool> stop_{false}, running_{false}, hold_{false}, extras_{false};
+    fg::Image last_face_frame_;   // guarded by mu_; only kept while intruder photos are on
     std::mutex mu_;
     Snapshot snap_;
 

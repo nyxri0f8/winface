@@ -86,13 +86,41 @@ public static class Backend
 public record Status(string Mode, bool Linked, bool Password, string Camera, int SearchMs, int ChallengeMs, int MaxFails,
                      int Strictness, bool Sounds, List<(string Name, int Captures)> Faces)
 {
+    // security (WinFace app -> Security)
+    public bool Action { get; init; } = true;
+    public int Flash { get; init; } = 1;              // 0 off, 1 measure, 2 enforce
+    public int ExtraChecks { get; init; } = 1;        // 0 never, 1 randomly 2-3 a day + after 2 failures, 2 every unlock
+    public bool PinAfterRestart { get; init; } = true;
+    public int PinAfterHours { get; init; } = 48;     // 0 = never
+    public bool IntruderPhotos { get; init; }
+    public bool EventsTask { get; init; }
+    public bool CameraPinned { get; init; }
+    public int Fails { get; init; }
+    public int Intruders { get; init; }
+    public string Locked { get; init; } = "";         // why face unlock waits for the PIN right now ("" = it doesn't)
+    public string CameraChanged { get; init; } = "";
+
     public static Status From(JsonElement e)
     {
         var faces = new List<(string, int)>();
         if (e.TryGetProperty("faces", out var f) && f.ValueKind == JsonValueKind.Array)
             foreach (var x in f.EnumerateArray()) faces.Add((x.Str("name"), (int)x.Num("captures")));
         return new Status(e.Str("mode", "off"), e.Bool("linked"), e.Bool("password"), e.Str("camera"), (int)e.Num("search_ms", 7000),
-                          (int)e.Num("challenge_ms", 3000), (int)e.Num("max_fails", 3), (int)e.Num("strictness"), e.Bool("sounds"), faces);
+                          (int)e.Num("challenge_ms", 3000), (int)e.Num("max_fails", 3), (int)e.Num("strictness"), e.Bool("sounds"), faces)
+        {
+            Action = !e.TryGetProperty("action", out _) || e.Bool("action"),
+            Flash = (int)e.Num("flash", 1),
+            ExtraChecks = (int)e.Num("extra_checks", 1),
+            PinAfterRestart = !e.TryGetProperty("pin_after_restart", out _) || e.Bool("pin_after_restart"),
+            PinAfterHours = (int)e.Num("pin_after_hours", 48),
+            IntruderPhotos = e.Bool("intruder_photos"),
+            EventsTask = e.Bool("events_task"),
+            CameraPinned = e.Bool("camera_pinned"),
+            Fails = (int)e.Num("fails"),
+            Intruders = (int)e.Num("intruders"),
+            Locked = e.Str("locked"),
+            CameraChanged = e.Str("camera_changed"),
+        };
     }
 
     public static async Task<Status?> Load()

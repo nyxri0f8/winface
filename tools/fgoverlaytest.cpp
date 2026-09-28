@@ -20,6 +20,11 @@
 
 #include "../cp/overlay.h"
 #include "../engine/camera.h"
+#include "../engine/decide.h"
+#include "../cp/common.h"
+#include "../cp/intruder.h"
+
+#include <ncrypt.h>
 
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "winmm.lib")
@@ -321,6 +326,142 @@ int cmd_camera() {
     return g_fail ? 1 : 0;
 }
 
+int cmd_security() {
+    using namespace fgcp;
+    printf("lockout rules\n");
+    const ULONGLONG hour = 36000000000ULL, now = 1000000 * hour, boot = now - 5 * hour;
+    Config c;
+    c.max_fails = 3;
+    c.events_task = true;
+    LockState s;
+    s.last_strong_auth = now - 1 * hour;   // PIN used after this boot
+    s.last_unlock = now - 1 * hour;
+    check(lockout_reason(c, s, now, boot).empty(), "PIN used since boot, unlocked an hour ago: face allowed");
+    LockState f = s; f.fails = 3;
+    check(!lockout_reason(c, f, now, boot).empty(), "3 failed attempts: PIN required");
+    f.fails = 2;
+    check(lockout_reason(c, f, now, boot).empty(), "2 failed attempts: face still allowed");
+    LockState r = s; r.last_strong_auth = boot - hour;
+    check(lockout_reason(c, r, now, boot).find(L"restart") != std::wstring::npos, "no PIN since the restart: PIN required");
+    Config c2 = c; c2.pin_after_restart = false;
+    check(lockout_reason(c2, r, now, boot).empty(), "...unless 'PIN after restart' is off");
+    LockState u = s; u.last_unlock = now - 49 * hour; u.last_strong_auth = now - 49 * hour;
+    check(!lockout_reason(c, u, now, now - 100 * hour).empty(), "not unlocked for 49 h: PIN required");
+    Config c3 = c; c3.pin_after_hours = 0;
+    check(lockout_reason(c3, u, now, now - 100 * hour).empty(), "...unless that rule is off");
+    LockState cam = s; cam.camera_changed = L"USB Video";
+    check(!lockout_reason(c, cam, now, boot).empty(), "camera changed: PIN required");
+    Config c4 = c; c4.events_task = false;
+    check(lockout_reason(c4, r, now, boot).empty(), "without the sign-in events task the PIN-time rules stay off");
+
+    printf("extra checks: randomly 2-3 times a day + after 2 failures\n");
+    {
+        Config e;
+        LockState st;
+        e.extra_checks = 0;
+        check(!extra_checks_due(e, st, 5, 0, 20260928, 10), "'Never': no extra checks, even after failures");
+        e.extra_checks = 2;
+        check(extra_checks_due(e, st, 0, 1, 20260928, 10), "'Every unlock': always");
+        e.extra_checks = 1;
+        check(extra_checks_due(e, st, 2, 1, 20260928, 10), "third attempt after 2 failures: always");
+        LockState d;
+        extra_checks_due(e, d, 0, 1, 20260928, 10);
+        check(d.extra_day == 20260928 && (d.extra_plan == 2 || d.extra_plan == 3) && d.extra_done == 0, "a new day plans 2 or 3");
+        d.extra_done = d.extra_plan;
+        check(!extra_checks_due(e, d, 0, 0, 20260928, 21), "day's plan used up: no more (even in the evening)");
+        // 1000 simulated days, 10 unlocks each between 08:00 and 22:00
+        int days = 1000, total = 0, min_day = 99, max_day = 0;
+        char b0[160];
+        LockState sim;
+        for (int day = 0; day < days; ++day) {
+            int today_count = 0;
+            for (int k = 0; k < 10; ++k) {
+                int hr = 8 + k * 14 / 10;
+                if (extra_checks_due(e, sim, 0, secure_random(), 20000000 + day, hr)) { ++sim.extra_done; ++today_count; }
+            }
+            total += today_count;
+            min_day = std::min(min_day, today_count);
+            max_day = std::max(max_day, today_count);
+        }
+        snprintf(b0, sizeof b0, "1000 days x 10 unlocks: %.2f extra checks a day on average (min %d, max %d)", double(total) / days, min_day, max_day);
+        check(min_day >= 2 && max_day <= 3, b0);
+    }
+
+    printf("blink / mouth measurement\n");
+    fg::Face face;
+    face.pts.assign(478, {0.f, 0.f, 0.f});
+    auto eye = [&](int c0, int c1, int u0, int l0, int u1, int l1, float x, float open) {
+        face.pts[c0] = {x, 100, 0}; face.pts[c1] = {x + 30, 100, 0};
+        face.pts[u0] = {x + 10, 100 - open / 2, 0}; face.pts[l0] = {x + 10, 100 + open / 2, 0};
+        face.pts[u1] = {x + 20, 100 - open / 2, 0}; face.pts[l1] = {x + 20, 100 + open / 2, 0};
+    };
+    auto eyes = [&](float open) { eye(33, 133, 160, 144, 158, 153, 60, open); eye(263, 362, 387, 373, 385, 380, 140, open); };
+    eyes(9);
+    float e_open = fg::eye_openness(face);
+    eyes(2);
+    float e_closed = fg::eye_openness(face);
+    char b[160];
+    snprintf(b, sizeof b, "eye openness: open %.2f, closed %.2f (closed < 60 %% of open)", e_open, e_closed);
+    check(e_open > 0.25f && e_closed < e_open * 0.6f, b);
+    face.pts[78] = {90, 180, 0}; face.pts[308] = {150, 180, 0}; face.pts[13] = {120, 178, 0}; face.pts[14] = {120, 182, 0};
+    float m_closed = fg::mouth_openness(face);
+    face.pts[13] = {120, 165, 0}; face.pts[14] = {120, 195, 0};
+    float m_open = fg::mouth_openness(face);
+    snprintf(b, sizeof b, "mouth openness: closed %.2f, open %.2f (open > 0.35)", m_closed, m_open);
+    check(m_closed < 0.1f && m_open > 0.35f, b);
+
+    printf("screen flash\n");
+    const int cols[2] = {0xFF0000, 0x0000FF};
+    check(fg::flash_colour_at(1000, cols, 1000 + 100) == -1, "baseline: no colour");
+    check(fg::flash_colour_at(1000, cols, 1000 + 400) == 0xFF0000, "first colour on time");
+    check(fg::flash_colour_at(1000, cols, 1000 + 850) == -1, "gap between the colours");
+    check(fg::flash_colour_at(1000, cols, 1000 + 1200) == 0x0000FF, "second colour on time");
+    check(fg::flash_colour_at(1000, cols, 1000 + 1500) == -1, "off afterwards");
+    std::array<float, 3> base{150, 110, 90};
+    check(fg::flash_response_ok(base, {157, 111, 90}, 0xFF0000, 0.015f), "skin turning redder under a red flash: pass");
+    check(!fg::flash_response_ok(base, {150, 110, 95}, 0xFF0000, 0.015f), "turning bluer under a red flash: fail");
+    check(!fg::flash_response_ok(base, {151, 111, 91}, 0xFF0000, 0.015f), "no clear change (screen / deepfake): fail");
+    check(!fg::flash_response_ok(base, {160, 118, 96}, 0xFF0000, 0.015f), "everything just brighter (not the colour): fail");
+
+    printf("camera identity\n");
+    check(fg::camera_instance(L"\\\\?\\usb#vid_0408&pid_5496&mi_00#8&5d2c72a&0&0000#{e5323777-f976-4f5b-9b55-b94699c46e44}\\global") ==
+              L"usb#vid_0408&pid_5496&mi_00#8&5d2c72a&0&0000", "exact device instance extracted");
+    check(fg::is_capture_device(L"Elgato Cam Link 4K") && fg::is_capture_device(L"USB3 Video") && fg::is_capture_device(L"OBS Virtual Camera"),
+          "HDMI capture dongles / OBS refused");
+    check(!fg::is_capture_device(L"HP FHD Camera") && !fg::is_capture_device(L"Integrated Webcam") && !fg::is_capture_device(L"Jobs Camera"),
+          "normal webcams allowed");
+
+    printf("intruder photo encryption (software test key; the product uses the TPM)\n");
+    fg::Image img(1280, 720);
+    for (int y = 0; y < 720; ++y) for (int x = 0; x < 1280; ++x) { auto* p = img.row(y) + x * 3; p[0] = BYTE(x); p[1] = BYTE(y); p[2] = 128; }
+    std::vector<BYTE> jpeg;
+    check(encode_jpeg(img, jpeg) && jpeg.size() > 1000 && jpeg[0] == 0xFF && jpeg[1] == 0xD8, "JPEG encoded (640 px wide)");
+    const wchar_t* kTestKey = L"WinFaceSelfTestKey";
+    NCRYPT_PROV_HANDLE prov = 0;
+    NCRYPT_KEY_HANDLE key = 0;
+    NCryptOpenStorageProvider(&prov, MS_KEY_STORAGE_PROVIDER, 0);
+    if (NCryptCreatePersistedKey(prov, &key, NCRYPT_RSA_ALGORITHM, kTestKey, 0, NCRYPT_OVERWRITE_KEY_FLAG) == ERROR_SUCCESS) {
+        DWORD bits = 2048;
+        NCryptSetProperty(key, NCRYPT_LENGTH_PROPERTY, (BYTE*)&bits, sizeof bits, 0);
+        NCryptFinalizeKey(key, 0);
+    }
+    std::vector<BYTE> sealed, back;
+    std::wstring err;
+    ULONGLONG when = 0;
+    bool sealed_ok = seal_blob(jpeg, sealed, MS_KEY_STORAGE_PROVIDER, kTestKey, 0, err);
+    check(sealed_ok, "encrypted");
+    if (!sealed_ok) wprintf(L"    %s\n", err.c_str());
+    check(sealed_ok && std::search(sealed.begin(), sealed.end(), jpeg.begin(), jpeg.begin() + 64) == sealed.end(),
+          "no readable image data inside the file");
+    check(open_blob(sealed, back, when, MS_KEY_STORAGE_PROVIDER, kTestKey, 0, err) && back == jpeg, "decrypts back to the same photo");
+    std::vector<BYTE> tampered = sealed;
+    if (!tampered.empty()) tampered[tampered.size() / 2] ^= 0x01;
+    check(!open_blob(tampered, back, when, MS_KEY_STORAGE_PROVIDER, kTestKey, 0, err), "a tampered file is rejected");
+    if (key) NCryptDeleteKey(key, 0);
+    NCryptFreeObject(prov);
+    return g_fail ? 1 : 0;
+}
+
 int cmd_wav(const wchar_t* path) {
     printf("sound file\n");
     HMMIO h = mmioOpenW(const_cast<LPWSTR>(path), nullptr, MMIO_READ | MMIO_ALLOCBUF);
@@ -363,6 +504,7 @@ int wmain(int argc, wchar_t** argv) {
     else if (cmd == L"dll" && argc > 2) rc = cmd_dll(argv[2]);
     else if (cmd == L"wav" && argc > 2) rc = cmd_wav(argv[2]);
     else if (cmd == L"camera") rc = cmd_camera();
+    else if (cmd == L"security") rc = cmd_security();
     else if (cmd == L"sound") { fgcp::play_unlock_sound(); rc = 0; }   // then exit at once, like LogonUI after sign-in
     else printf("usage: fgoverlaytest render <outdir> [backdrop] | live [shot.png] | dll <WinFaceCP.dll> | wav <file.wav>\n");
     GdiplusShutdown(tok);

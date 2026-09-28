@@ -14,6 +14,7 @@ public partial class MainWindow : Window
         ["faces"] = () => new FacesPage(),
         ["password"] = () => new PasswordPage(),
         ["test"] = () => new TestPage(),
+        ["security"] = () => new SecurityPage(),
         ["settings"] = () => new SettingsPage(),
         ["logs"] = () => new LogsPage(),
         ["about"] = () => new AboutPage(),
@@ -23,11 +24,27 @@ public partial class MainWindow : Window
     {
         Instance = this;
         InitializeComponent();
-        Loaded += (_, _) =>
+        Loaded += async (_, _) => await Start();
+    }
+
+    // The guide opens only on a PC that is not set up yet (and not after "Finish later"). A PC that is already set up
+    // counts as done even if the guide was never clicked to the end. A newer privacy policy only asks for agreement.
+    async Task Start()
+    {
+        var st = await Status.Load();
+        bool configured = st is { Password: true, Linked: true } && st.Faces.Count > 0 && st.Mode != "off";
+        if (!AppState.SetupDone && configured) AppState.SetupDone = true;
+        if (!AppState.SetupDone && !AppState.SetupSkipped)
         {
-            if (AppState.SetupDone) Show("home"); else ShowSetup();
-            _ = RefreshMode();
-        };
+            ShowSetup();
+        }
+        else
+        {
+            Show("home");
+            if (!AppState.PolicyAccepted && new PolicyWindow { Owner = this }.ShowDialog() != true) { Close(); return; }
+        }
+        _ = RefreshMode();
+        Updates.CheckInBackground();
     }
 
     void OnNav(object sender, RoutedEventArgs e)
@@ -63,6 +80,26 @@ public partial class MainWindow : Window
     {
         if (Page.Content is IDisposable old) old.Dispose();
         Page.Content = _pages[tag]();
+    }
+
+    /// <summary>Show the flash colours on the engine's timeline (from fgsetup's "flash" event) over the whole window.
+    /// The window is maximised for the flash, so more light reaches the face.</summary>
+    public async void Flash(double startInMs, double baseMs, double onMs, double gapMs, string c1, string c2)
+    {
+        var prev = WindowState;
+        WindowState = WindowState.Maximized;
+        var bc = new BrushConverter();
+        await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(0, startInMs + baseMs)));
+        FlashLayer.Background = (Brush)bc.ConvertFromString(c1)!;
+        FlashLayer.Visibility = Visibility.Visible;
+        await Task.Delay(TimeSpan.FromMilliseconds(onMs));
+        FlashLayer.Visibility = Visibility.Collapsed;
+        await Task.Delay(TimeSpan.FromMilliseconds(gapMs));
+        FlashLayer.Background = (Brush)bc.ConvertFromString(c2)!;
+        FlashLayer.Visibility = Visibility.Visible;
+        await Task.Delay(TimeSpan.FromMilliseconds(onMs));
+        FlashLayer.Visibility = Visibility.Collapsed;
+        WindowState = prev;
     }
 
     public async Task RefreshMode()

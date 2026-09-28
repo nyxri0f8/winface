@@ -101,6 +101,8 @@ if ($StageTo) {
 # ---------------------------------------------------------------- data folder + registration
 # before v1.0 the product was called FaceGate: bring its faces, password and settings over to the WinFace locations
 & (Join-Path $dest 'fgsetup.exe') migrate
+# the SYSTEM task that reports PIN / password sign-ins (for the PIN-after-restart / after-48-hours rules)
+& (Join-Path $dest 'fgsetup.exe') events-task install
 # Data folder: SYSTEM + Administrators full control; Users may read (the CredUI test runs as you) and append the log.
 New-Item -ItemType Directory -Force -Path $data | Out-Null
 icacls $data /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'Administrators:(OI)(CI)F' 'Users:(OI)(CI)RX' | Out-Null

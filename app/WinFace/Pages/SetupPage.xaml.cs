@@ -141,6 +141,7 @@ public partial class SetupPage : UserControl, IDisposable
     void OnSkip(object sender, RoutedEventArgs e)
     {
         _cts?.Cancel();
+        AppState.SetupSkipped = true;   // do not open the guide on every start; Home keeps the checklist
         MainWindow.Instance?.FinishSetup();
     }
 

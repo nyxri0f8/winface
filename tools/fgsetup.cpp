@@ -9,10 +9,17 @@
 //   set <Setting> <value>      Camera | SearchMs | ChallengeMs | MaxFails | Strictness | Sounds
 //   test [--json]              full face check (scan + liveness + head turn) without signing in
 //   erase                      delete faces, stored password (+ its TPM keys), log contents and all settings
+//   intruders [get <id> | delete <id|all>]   encrypted intruder photos (list / view / delete)
+//   unlock-reset               clear a face-unlock lockout (the app, after UAC)
+//   events-task install|remove the SYSTEM task that reports PIN/password sign-ins; auth-event is what it runs
+//   update-task install|remove the per-user task that runs WinFaceUpdater.exe --background
 //   tpm-cleanup [all]          (runs as SYSTEM via a one-off task) delete old / all WinFace TPM keys
 // Privacy: never prints the password; face data stays in %ProgramData%\WinFace (admin-only).
 #include <windows.h>
 #include <conio.h>
+#include <wincrypt.h>
+
+#pragma comment(lib, "crypt32.lib")
 #include <sddl.h>
 
 #include <algorithm>
@@ -23,6 +30,7 @@
 #include <string>
 
 #include "../cp/common.h"
+#include "../cp/intruder.h"
 #include "../cp/secret.h"
 #include "../engine/camera.h"
 #include "../engine/decide.h"
@@ -255,6 +263,8 @@ static int enroll(const std::string& name) {
     // automatic camera choice: from now on use exactly the camera this face was captured with (the lock screen
     // must never pick a different one, e.g. an external webcam plugged in later)
     if (cfg.camera.empty()) set_reg_sz(L"Camera", camera_fragment(cam.info().symlink));
+    set_reg_sz(L"CameraInstance", camera_instance(cam.info().symlink));   // pinned: a different device needs confirming
+    fgcp::LockState::set_string(L"CameraChanged", L"");
     char b[200];
     snprintf(b, sizeof b, "{\"t\":\"done\",\"ok\":true,\"name\":%s,\"captures\":%zu,\"similar_to\":%s}", jstr(name).c_str(),
              embs.size(), jstr(similar).c_str());
@@ -394,10 +404,13 @@ static int erase() {
     HKEY k;
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WinFace", 0, KEY_SET_VALUE | KEY_WOW64_64KEY, &k) == ERROR_SUCCESS) {
         for (const wchar_t* v : {L"UserSid", L"TestMode", L"Scenarios", L"Camera", L"SearchMs", L"ChallengeMs", L"MaxFails",
-                                 L"Strictness", L"Sounds"})
+                                 L"Strictness", L"Sounds", L"Action", L"FlashCheck", L"PinAfterRestart", L"PinAfterHours",
+                                 L"IntruderPhotos", L"CameraInstance", L"ExtraChecks"})
             RegDeleteValueW(k, v);
         RegCloseKey(k);
     }
+    fgcp::intruder_erase_all();
+    RegDeleteKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\WinFace\\State", KEY_WOW64_64KEY, 0);
     int keys_left = tpm_cleanup_as_system(true);
     char b[200];
     snprintf(b, sizeof b, "{\"t\":\"done\",\"ok\":%s,\"faces\":%s,\"password\":%s,\"log\":%s,\"tpm_keys_left\":%d}",
@@ -478,6 +491,191 @@ static int migrate() {
     return 0;
 }
 
+// ---------- lockout: the sign-in events task, reset ----------
+// Runs as SYSTEM from the "WinFace sign-in events" task on every sign-in / unlock. If face unlock handed Windows the
+// password moments ago it was a face unlock; otherwise the PIN or password was used - which is what the PIN rules
+// (after a restart, after 48 h, after failed attempts) wait for.
+static int auth_event() {
+    auto s = fgcp::LockState::load();
+    ULONGLONG now = fgcp::filetime_now();
+    bool by_face = s.last_face_serve != 0 && now - s.last_face_serve < 120ULL * 10000000ULL;
+    fgcp::LockState::set_qword(L"LastUnlock", now);
+    if (!by_face) {
+        fgcp::LockState::set_qword(L"LastStrongAuth", now);
+        fgcp::LockState::set_dword(L"Fails", 0);
+    }
+    fgcp::log_event(L"sign-in event: %s", by_face ? L"face unlock" : L"PIN / password - face unlock available again");
+    say(by_face ? "face" : "pin", std::string("{\"t\":\"done\",\"ok\":true,\"by\":\"") + (by_face ? "face" : "pin") + "\"}");
+    return 0;
+}
+
+static int run_quiet(std::wstring cmd) {
+    STARTUPINFOW si{sizeof si};
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) return -1;
+    WaitForSingleObject(pi.hProcess, 30000);
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return (int)code;
+}
+
+// The task definition (the test build also prints it, so its format can be checked without admin rights)
+static std::wstring events_task_xml(const std::wstring& exe) {
+    return
+        L"<?xml version=\"1.0\" encoding=\"UTF-16\"?>\r\n"
+        L"<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\r\n"
+        L"  <RegistrationInfo><Description>WinFace: tells face unlock when you signed in with your PIN or password "
+        L"(for the PIN-after-restart / after-48-hours / after-failed-attempts rules).</Description></RegistrationInfo>\r\n"
+        L"  <Triggers>\r\n"
+        L"    <LogonTrigger><Enabled>true</Enabled></LogonTrigger>\r\n"
+        L"    <SessionStateChangeTrigger><Enabled>true</Enabled><StateChange>SessionUnlock</StateChange></SessionStateChangeTrigger>\r\n"
+        L"  </Triggers>\r\n"
+        L"  <Principals><Principal id=\"System\"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal></Principals>\r\n"
+        L"  <Settings><MultipleInstancesPolicy>Queue</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>"
+        L"<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT1M</ExecutionTimeLimit><Priority>5</Priority></Settings>\r\n"
+        L"  <Actions Context=\"System\"><Exec><Command>" + exe + L"</Command><Arguments>auth-event</Arguments></Exec></Actions>\r\n"
+        L"</Task>\r\n";
+}
+
+// Update check: runs WinFaceUpdater.exe as each signed-in user (no admin, no UAC) 3 minutes after sign-in and daily.
+static std::wstring update_task_xml(const std::wstring& updater) {
+    return L"<?xml version=\"1.0\" encoding=\"UTF-16\"?>\r\n"
+           L"<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\r\n"
+           L"  <RegistrationInfo><Description>WinFace: checks GitHub for a newer WinFace and offers to install it "
+           L"(turn off in WinFace > About).</Description></RegistrationInfo>\r\n"
+           L"  <Triggers>\r\n"
+           L"    <LogonTrigger><Enabled>true</Enabled><Delay>PT3M</Delay></LogonTrigger>\r\n"
+           L"    <CalendarTrigger><StartBoundary>2026-01-01T12:00:00</StartBoundary><Enabled>true</Enabled>"
+           L"<ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>\r\n"
+           L"  </Triggers>\r\n"
+           L"  <Principals><Principal id=\"Users\"><GroupId>S-1-5-32-545</GroupId><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>\r\n"
+           L"  <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>"
+           L"<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><StartWhenAvailable>true</StartWhenAvailable>"
+           L"<RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable><ExecutionTimeLimit>PT2H</ExecutionTimeLimit><Priority>7</Priority></Settings>\r\n"
+           L"  <Actions Context=\"Users\"><Exec><Command>" + updater + L"</Command><Arguments>--background</Arguments></Exec></Actions>\r\n"
+           L"</Task>\r\n";
+}
+
+static bool create_task(const wchar_t* name, const std::wstring& xml) {
+    wchar_t tmp[MAX_PATH];
+    GetTempPathW(MAX_PATH, tmp);
+    std::wstring path = std::wstring(tmp) + L"winface-task.xml";
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    DWORD wr = 0;
+    WORD bom = 0xFEFF;
+    WriteFile(h, &bom, 2, &wr, nullptr);
+    WriteFile(h, xml.data(), DWORD(xml.size() * sizeof(wchar_t)), &wr, nullptr);
+    CloseHandle(h);
+    int code = run_quiet(L"schtasks.exe /create /f /tn \"" + std::wstring(name) + L"\" /xml \"" + path + L"\"");
+    DeleteFileW(path.c_str());
+    return code == 0;
+}
+
+static int update_task(const std::wstring& what) {
+    const wchar_t* name = L"WinFace update check";
+    if (what == L"remove") {
+        run_quiet(L"schtasks.exe /delete /f /tn \"" + std::wstring(name) + L"\"");
+        say("removed", "{\"t\":\"done\",\"ok\":true}");
+        return 0;
+    }
+    if (!create_task(name, update_task_xml(install_dir() + L"\\WinFaceUpdater.exe"))) return fail("could not create the update-check task", 2);
+    say("installed", "{\"t\":\"done\",\"ok\":true}");
+    return 0;
+}
+
+// install: the SYSTEM task that calls `fgsetup auth-event` on every sign-in and unlock; remove: delete it
+static int events_task(const std::wstring& what) {
+    const wchar_t* name = L"WinFace sign-in events";
+    if (what == L"remove") {
+        run_quiet(L"schtasks.exe /delete /f /tn \"" + std::wstring(name) + L"\"");
+        set_reg(L"EventsTask", 0);
+        say("removed", "{\"t\":\"done\",\"ok\":true}");
+        return 0;
+    }
+    wchar_t exe[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    std::wstring xml = events_task_xml(exe);
+    wchar_t tmp[MAX_PATH];
+    GetTempPathW(MAX_PATH, tmp);
+    std::wstring path = std::wstring(tmp) + L"winface-events.xml";
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return fail("cannot write the task file", 2);
+    DWORD wr = 0;
+    WORD bom = 0xFEFF;
+    WriteFile(h, &bom, 2, &wr, nullptr);
+    WriteFile(h, xml.data(), DWORD(xml.size() * sizeof(wchar_t)), &wr, nullptr);
+    CloseHandle(h);
+    int code = run_quiet(L"schtasks.exe /create /f /tn \"" + std::wstring(name) + L"\" /xml \"" + path + L"\"");
+    DeleteFileW(path.c_str());
+    if (code != 0) return fail("could not create the sign-in events task", 2);
+    set_reg(L"EventsTask", 1);
+    // installing needs an administrator who is signed in right now: that counts as a PIN / password sign-in
+    ULONGLONG now = fgcp::filetime_now();
+    fgcp::LockState::set_qword(L"LastStrongAuth", now);
+    fgcp::LockState::set_qword(L"LastUnlock", now);
+    say("installed", "{\"t\":\"done\",\"ok\":true}");
+    return 0;
+}
+
+// the app (administrator, just confirmed by UAC) can clear a lockout
+static int unlock_reset() {
+    ULONGLONG now = fgcp::filetime_now();
+    fgcp::LockState::set_dword(L"Fails", 0);
+    fgcp::LockState::set_qword(L"LastStrongAuth", now);
+    fgcp::LockState::set_qword(L"LastUnlock", now);
+    say("face unlock available again", "{\"t\":\"done\",\"ok\":true}");
+    return 0;
+}
+
+// ---------- intruder photos ----------
+static std::string base64(const std::vector<BYTE>& v) {
+    DWORD n = 0;
+    CryptBinaryToStringA(v.data(), (DWORD)v.size(), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &n);
+    std::string s(n, '\0');
+    CryptBinaryToStringA(v.data(), (DWORD)v.size(), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, s.data(), &n);
+    s.resize(n);
+    return s;
+}
+
+static std::string local_time(ULONGLONG ft) {
+    FILETIME f{DWORD(ft), DWORD(ft >> 32)}, lf;
+    SYSTEMTIME t{};
+    FileTimeToLocalFileTime(&f, &lf);
+    FileTimeToSystemTime(&lf, &t);
+    char b[40];
+    snprintf(b, sizeof b, "%04d-%02d-%02d %02d:%02d:%02d", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+    return b;
+}
+
+static int intruders(const std::wstring& sub, const std::wstring& id) {
+    if (sub == L"delete") {
+        int n = fgcp::intruder_delete(id.empty() ? L"none" : id);
+        say(("deleted " + std::to_string(n)).c_str(), "{\"t\":\"done\",\"ok\":true,\"deleted\":" + std::to_string(n) + "}");
+        return 0;
+    }
+    if (sub == L"get") {
+        std::vector<BYTE> jpeg;
+        std::string reason;
+        ULONGLONG when = 0;
+        std::wstring err;
+        if (!fgcp::intruder_open(id, jpeg, reason, when, err)) return fail(utf8(err), 2);
+        emit("{\"t\":\"photo\",\"id\":" + jstr(id) + ",\"time\":" + jstr(local_time(when)) + ",\"reason\":" + jstr(reason) +
+             ",\"jpeg\":\"" + base64(jpeg) + "\"}");
+        SecureZeroMemory(jpeg.data(), jpeg.size());
+        return 0;
+    }
+    std::string a = "[";
+    for (auto& p : fgcp::intruder_list()) {
+        a += (a.size() > 1 ? "," : "") + std::string("{\"id\":") + jstr(p.id) + ",\"time\":" + jstr(local_time(p.when)) + "}";
+        if (!g_json) printf("%ls  %s\n", p.id.c_str(), local_time(p.when).c_str());
+    }
+    if (g_json) emit("{\"t\":\"intruders\",\"list\":" + a + "]}");
+    return 0;
+}
+
 static int mode(const std::wstring& m) {
     if (m == L"off") { set_reg(L"Enabled", 0); set_reg(L"TestMode", 0); }
     else if (m == L"test") { set_reg(L"Enabled", 1); set_reg(L"Scenarios", 1); set_reg(L"TestMode", 1); }
@@ -493,8 +691,20 @@ static int set_setting(const std::wstring& name, const std::wstring& val) {
         std::wstring v = camera_fragment(val);
         if (!is_hardware_camera(L"\\\\?\\" + v)) return fail("only real cameras can be used (not virtual ones)", 1);
         set_reg_sz(L"Camera", v);
-    } else if (name == L"SearchMs" || name == L"ChallengeMs" || name == L"MaxFails" || name == L"Strictness" || name == L"Sounds") {
+        // pin the exact device when a full device id is given (the app does); confirms a changed camera
+        std::wstring full = val;
+        std::transform(full.begin(), full.end(), full.begin(), [](wchar_t ch) { return (wchar_t)towlower(ch); });
+        if (full.rfind(L"\\\\?\\", 0) == 0) set_reg_sz(L"CameraInstance", camera_instance(full));
+        fgcp::LockState::set_string(L"CameraChanged", L"");
+    } else if (name == L"SearchMs" || name == L"ChallengeMs" || name == L"MaxFails" || name == L"Strictness" || name == L"Sounds" ||
+               name == L"Action" || name == L"FlashCheck" || name == L"PinAfterRestart" || name == L"PinAfterHours" ||
+               name == L"ExtraChecks") {
         set_reg(name.c_str(), (DWORD)_wtoi(val.c_str()));   // the lock screen clamps every value to a safe range
+    } else if (name == L"IntruderPhotos") {
+        bool on = _wtoi(val.c_str()) == 1;
+        std::wstring err;
+        if (on && !fgcp::intruder_key_ensure(err)) return fail("intruder photos need the TPM: " + utf8(err), 2);
+        set_reg(L"IntruderPhotos", on ? 1 : 0);
     } else {
         return fail("unknown setting", 1);
     }
@@ -508,15 +718,22 @@ static int status() {
     load_profiles(fgcp::data_dir() + L"\\profiles.bin", p);
     bool pw = GetFileAttributesW((fgcp::data_dir() + L"\\secret.tpm").c_str()) != INVALID_FILE_ATTRIBUTES;
     const char* m = !c.enabled ? "off" : (c.scenarios & 2) ? "lock" : "test";
+    auto ls = fgcp::LockState::load();
+    std::wstring lock = fgcp::lockout_reason(c, ls, fgcp::filetime_now(), fgcp::boot_filetime());
     if (g_json) {
         std::string faces = "[";
         for (auto& [n, t] : p) faces += (faces.size() > 1 ? "," : "") + std::string("{\"name\":") + jstr(n) + ",\"captures\":" + std::to_string(t.size()) + "}";
-        char b[400];
+        char b[700];
         snprintf(b, sizeof b, "{\"t\":\"status\",\"mode\":\"%s\",\"linked\":%s,\"password\":%s,\"camera\":%s,\"search_ms\":%lu,"
-                 "\"challenge_ms\":%lu,\"max_fails\":%lu,\"strictness\":%lu,\"sounds\":%s,\"faces\":",
+                 "\"challenge_ms\":%lu,\"max_fails\":%lu,\"strictness\":%lu,\"sounds\":%s,\"action\":%s,\"flash\":%lu,"
+                 "\"pin_after_restart\":%s,\"pin_after_hours\":%lu,\"intruder_photos\":%s,\"events_task\":%s,\"camera_pinned\":%s,"
+                 "\"fails\":%lu,\"intruders\":%zu,\"extra_checks\":%lu,",
                  m, c.user_sid.empty() ? "false" : "true", pw ? "true" : "false", jstr(c.camera).c_str(), c.search_ms,
-                 c.challenge_ms, c.max_fails, c.strictness, c.sounds ? "true" : "false");
-        emit(std::string(b) + faces + "]}");
+                 c.challenge_ms, c.max_fails, c.strictness, c.sounds ? "true" : "false", c.action ? "true" : "false", c.flash,
+                 c.pin_after_restart ? "true" : "false", c.pin_after_hours, c.intruder_photos ? "true" : "false",
+                 c.events_task ? "true" : "false", c.camera_instance.empty() ? "false" : "true", ls.fails, fgcp::intruder_list().size(),
+                 c.extra_checks);
+        emit(std::string(b) + "\"locked\":" + jstr(lock) + ",\"camera_changed\":" + jstr(ls.camera_changed) + ",\"faces\":" + faces + "]}");
     } else {
         printf("mode: %s  faces: %zu/%zu  password: %s  camera: %ls\n", m, p.size(), kMaxProfiles, pw ? "saved" : "none", c.camera.c_str());
         printf("search %lu ms, head turn %lu ms, max fails %lu, strictness %lu, sounds %d\n", c.search_ms, c.challenge_ms,
@@ -551,32 +768,46 @@ static int test() {
     prm.match = cfg.match_threshold();
     prm.search_timeout_ms = cfg.search_ms;
     prm.challenge_timeout_ms = cfg.challenge_ms;
+    prm.action = cfg.action;
+    prm.flash_mode = (int)cfg.flash;
     Engine eng(e.rec, e.tex, profiles, prm);
     eng.reset(now_ms());
     Image frame;
     uint64_t seq = 0;
-    double ts = 0, t_last = 0;
+    double ts = 0, t_last = 0, flash_sent = 0;
     const char* names[] = {"search", "challenge", "unlock", "fail"};
     for (;;) {
         if (!cam.next(frame, seq, ts, 1000)) { cam.close(); return fail("camera stopped", 2); }
         std::vector<Face> faces;
         if (auto f = e.mesh.process(frame)) faces.push_back(*f);
-        const Status& st = eng.step(frame, faces, now_ms());
+        const Status& st = eng.step(frame, faces, now_ms(), ts);
         bool end = st.state == State::Unlock || st.state == State::Fail;
+        if (g_json && st.stage == kStageFlash && st.flash_t0 != flash_sent) {
+            // the app shows the colours on its own timer: the timeline relative to now
+            flash_sent = st.flash_t0;
+            char b[160];
+            snprintf(b, sizeof b, "{\"t\":\"flash\",\"start_in\":%.0f,\"base\":%.0f,\"on\":%.0f,\"gap\":%.0f,\"c1\":\"#%06X\",\"c2\":\"#%06X\"}",
+                     st.flash_t0 - now_ms(), kFlashBase, kFlashOn, kFlashGap, st.flash_rgb[0], st.flash_rgb[1]);
+            emit(b);
+        }
         if (g_json && (end || now_ms() - t_last > 50)) {
             t_last = now_ms();
             char b[400];
-            snprintf(b, sizeof b, "{\"t\":\"frame\",\"state\":\"%s\",\"hint\":%s,\"progress\":%.2f,\"direction\":%d,\"score\":%.2f,\"texture\":%.2f,\"mesh\":",
+            snprintf(b, sizeof b, "{\"t\":\"frame\",\"state\":\"%s\",\"hint\":%s,\"progress\":%.2f,\"direction\":%d,\"score\":%.2f,\"texture\":%.2f,"
+                     "\"stage\":%d,\"action\":%d,\"mesh\":",
                      names[(int)st.state], jstr(st.hint).c_str(), st.progress, st.state == State::Challenge ? st.direction : 0,
-                     st.score, st.texture);
+                     st.score, st.texture, st.state == State::Challenge ? st.stage : 0, st.stage == kStageAction ? st.action : 0);
             emit(std::string(b) + (faces.empty() ? "[]" : mesh_json(faces[0])) + "}");
         }
         if (end) {
             cam.close();
-            char b[400];
-            snprintf(b, sizeof b, "{\"t\":\"done\",\"ok\":%s,\"ms\":%.0f,\"camera_ms\":%.0f,\"reason\":%s}",
-                     st.state == State::Unlock ? "true" : "false", now_ms() - t0, cam.open_ms(), jstr(st.reason).c_str());
-            say((std::string(st.state == State::Unlock ? "PASS: " : "FAIL: ") + st.reason).c_str(), b);
+            char b[160];
+            snprintf(b, sizeof b, "{\"t\":\"done\",\"ok\":%s,\"ms\":%.0f,\"camera_ms\":%.0f,", st.state == State::Unlock ? "true" : "false",
+                     now_ms() - t0, cam.open_ms());
+            std::string line = std::string(b) + "\"reason\":" + jstr(st.reason) + ",\"flash\":" + jstr(st.flash_report) + "}";
+            std::string human = std::string(st.state == State::Unlock ? "PASS: " : "FAIL: ") + st.reason +
+                                (st.flash_report.empty() || st.state == State::Unlock ? "" : " [" + st.flash_report + "]");
+            say(human.c_str(), line);
             return st.state == State::Unlock ? 0 : 1;
         }
     }
@@ -598,6 +829,16 @@ int wmain(int argc, wchar_t** argv) {
         if (cmd == L"verify") return verify();
 #ifdef WINFACE_MIGRATE_TEST
         if (cmd == L"migrate") return migrate();
+        if (cmd == L"events-xml") {   // test build only: print the task definition
+            wchar_t exe[MAX_PATH];
+            GetModuleFileNameW(nullptr, exe, MAX_PATH);
+            fputs(utf8(events_task_xml(exe)).c_str(), stdout);
+            return 0;
+        }
+        if (cmd == L"update-xml") {   // test build only
+            fputs(utf8(update_task_xml(install_dir() + L"\\WinFaceUpdater.exe")).c_str(), stdout);
+            return 0;
+        }
 #endif
         if (!is_admin()) return fail("run as administrator", 5);
         if (cmd == L"enroll" && args.size() > 1) return enroll(narrow(arg(1)));
@@ -607,6 +848,11 @@ int wmain(int argc, wchar_t** argv) {
         if (cmd == L"set" && args.size() > 2) return set_setting(arg(1), arg(2));
         if (cmd == L"test") return test();
         if (cmd == L"erase") return erase();
+        if (cmd == L"auth-event") return auth_event();
+        if (cmd == L"events-task") return events_task(arg(1));
+        if (cmd == L"update-task") return update_task(arg(1));
+        if (cmd == L"unlock-reset") return unlock_reset();
+        if (cmd == L"intruders") return intruders(arg(1), arg(2));
         if (cmd == L"migrate") return migrate();
         if (cmd == L"tpm-cleanup") return tpm_cleanup(arg(1) == L"all");
     } catch (const std::exception& e) {

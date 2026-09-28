@@ -46,6 +46,9 @@
           <RadioButton Style="{StaticResource Nav}" Tag="test" AutomationProperties.Name="Test" Checked="OnNav">
             <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE9D9;" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" /><TextBlock Text="Test" Margin="12,0,0,0" /></StackPanel>
           </RadioButton>
+          <RadioButton Style="{StaticResource Nav}" Tag="security" AutomationProperties.Name="Security" Checked="OnNav">
+            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xEA18;" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" /><TextBlock Text="Security" Margin="12,0,0,0" /></StackPanel>
+          </RadioButton>
           <RadioButton Style="{StaticResource Nav}" Tag="settings" AutomationProperties.Name="Settings" Checked="OnNav">
             <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE713;" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" /><TextBlock Text="Settings" Margin="12,0,0,0" /></StackPanel>
           </RadioButton>
@@ -61,5 +64,8 @@
 
     <!-- page -->
     <ContentControl x:Name="Page" Grid.Column="1" Focusable="False" />
+
+    <!-- screen-flash check during in-app tests: the whole window shows the colour -->
+    <Border x:Name="FlashLayer" Grid.ColumnSpan="2" Visibility="Collapsed" IsHitTestVisible="False" Panel.ZIndex="100" />
   </Grid>
 </Window>

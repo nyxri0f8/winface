@@ -25,6 +25,8 @@ if ($LASTEXITCODE) { throw 'C++ build failed' }
 Step "WinFace app"
 dotnet publish app\WinFace\WinFace.csproj -c Release -o app\WinFace\bin\publish -p:Version=$Version --nologo
 if ($LASTEXITCODE) { throw 'app build failed' }
+dotnet publish app\WinFaceUpdater\WinFaceUpdater.csproj -c Release -o app\WinFaceUpdater\bin\publish -p:Version=$Version --nologo
+if ($LASTEXITCODE) { throw 'updater build failed' }
 
 if (-not $SkipTests) {
     Step "Checks"
@@ -34,6 +36,8 @@ if (-not $SkipTests) {
     if ($LASTEXITCODE) { throw 'provider DLL check failed' }
     & .\build\Release\fgoverlaytest.exe wav .\assets\sfx_unlock.wav | Select-Object -Last 1
     if ($LASTEXITCODE) { throw 'sound check failed' }
+    & .\build\Release\fgoverlaytest.exe security | Select-Object -Last 1
+    if ($LASTEXITCODE) { throw 'security checks failed' }
     & powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\migratetest.ps1 | Select-Object -Last 1
     if ($LASTEXITCODE) { throw 'FaceGate -> WinFace migration test failed' }
 }
@@ -43,4 +47,7 @@ Step "Installer"
 if ($LASTEXITCODE) { throw 'Inno Setup failed' }
 $out = Get-Item "dist\WinFace-Setup-$Version.exe"
 Write-Host ("`nBuilt {0} ({1:N1} MB)" -f $out.FullName, ($out.Length / 1MB)) -ForegroundColor Green
-Write-Host ("SHA-256 {0}" -f (Get-FileHash $out).Hash)
+$sha = (Get-FileHash $out).Hash.ToLower()
+# published next to the setup; WinFaceUpdater refuses an update whose download does not match it
+Set-Content -Path "$($out.FullName).sha256" -Value "$sha  $($out.Name)" -Encoding ascii -NoNewline
+Write-Host ("SHA-256 {0}" -f $sha)

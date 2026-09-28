@@ -32,6 +32,18 @@
       </Border>
 
       <!-- setup checklist -->
+      <!-- paused / camera changed -->
+      <Border x:Name="AlertCard" Style="{StaticResource Card}" BorderBrush="{StaticResource Warn}" Visibility="Collapsed">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Content="Open Security" Click="OnSecurity" VerticalAlignment="Center" />
+          <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="&#xE7BA;" Foreground="{StaticResource Warn}" FontSize="20" Margin="0,0,14,0" />
+          <StackPanel>
+            <TextBlock x:Name="AlertTitle" Style="{StaticResource H2}" />
+            <TextBlock x:Name="AlertText" Style="{StaticResource Sub}" Margin="0,4,0,0" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
       <Border x:Name="SetupCard" Style="{StaticResource Card}" Visibility="Collapsed">
         <StackPanel>
           <TextBlock Text="Finish setting up" Style="{StaticResource H2}" />
@@ -59,7 +71,7 @@
             <TextBlock Text="Privacy and your data" Style="{StaticResource H2}" Margin="10,0,0,0" />
           </StackPanel>
           <TextBlock Style="{StaticResource Sub}" Margin="0,8,0,0"
-                     Text="Everything stays on this PC. WinFace never uploads anything: no account, no cloud, no telemetry. Camera images are never saved - only face templates (numbers) in C:\ProgramData\WinFace, readable only by administrators. Your password is encrypted by this PC's TPM chip." />
+                     Text="Everything stays on this PC. WinFace never uploads anything: no account, no cloud, no telemetry. Camera images are never saved (except intruder photos, if you turn them on) - only face templates (numbers) in C:\ProgramData\WinFace, readable only by administrators. Your password is encrypted by this PC's TPM chip." />
           <WrapPanel Margin="0,14,0,0">
             <Button Content="Turn face unlock off" Click="OnOff" Margin="0,0,8,8" />
             <Button Content="Erase all face data..." Style="{StaticResource DangerButton}" Click="OnErase" Margin="0,0,8,8" />

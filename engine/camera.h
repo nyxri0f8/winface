@@ -26,6 +26,8 @@ struct CameraInfo {
 struct CameraEntry { std::wstring name, symlink; bool hardware, infrared; };
 bool is_hardware_camera(const std::wstring& symlink);
 bool is_infrared_camera(const std::wstring& friendly_name);
+bool is_capture_device(const std::wstring& friendly_name);   // HDMI capture dongles etc. - never used
+std::wstring camera_instance(const std::wstring& symlink);  // bus#ids#instance: identifies one physical camera
 std::vector<CameraEntry> list_cameras();
 
 class Camera {

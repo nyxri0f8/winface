@@ -46,18 +46,22 @@ public:
     IFACEMETHODIMP GetUserSid(PWSTR* sid) override;
 
     bool take_verified();          // one-shot, short-lived proof that the face check passed
+    bool locked() const;           // PIN required right now (then face is not the default tile)
     void restart_scan(const wchar_t* why);
 
 private:
     ~FaceCredential();
     void on_scan_done(bool unlocked, const std::string& reason);
     void set_status(const wchar_t* s);
+    std::wstring lockout() const;
 
     LONG refs_ = 1;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus_;
     Config cfg_;
     std::wstring sid_, user_;
     bool local_;
+    bool persist_ = false;
+    std::atomic<bool> extras_active_{false};   // the running scan includes the extra checks         // lock / sign-in screen as SYSTEM: lockout state is read and written
     Unlocked on_unlocked_;
     ICredentialProviderCredentialEvents* events_ = nullptr;
     std::unique_ptr<Scanner> scanner_;

@@ -189,14 +189,26 @@ void render_hud(Graphics& g, float k, const HudFrame& f) {
         const float fx = cx + lk * 7 * k;        // features slide
         const float nx = fx + lk * 3 * k;        // the nose a little further: reads as a turn, not a slide
         const float ey = cy - 13 * k;
-        g.DrawLine(&pen, fx - 17 * k, ey - 5 * k, fx - 17 * k, ey + 4 * k);
-        g.DrawLine(&pen, fx + 17 * k, ey - 5 * k, fx + 17 * k, ey + 4 * k);
+        // blink: the glyph closes its eyes every 1.2 s to show what to do
+        const bool closed = f.action == fg::kActionBlink && std::fmod(f.t, 1.2) < 0.35;
+        if (closed) {
+            g.DrawLine(&pen, fx - 21 * k, ey, fx - 13 * k, ey);
+            g.DrawLine(&pen, fx + 13 * k, ey, fx + 21 * k, ey);
+        } else {
+            g.DrawLine(&pen, fx - 17 * k, ey - 5 * k, fx - 17 * k, ey + 4 * k);
+            g.DrawLine(&pen, fx + 17 * k, ey - 5 * k, fx + 17 * k, ey + 4 * k);
+        }
         PointF nose[3] = {PointF(nx + 1 * k, ey - 5 * k), PointF(nx + 1 * k, cy + 7 * k), PointF(nx - 4 * k, cy + 7 * k)};
         g.DrawLines(&pen, nose, 3);
         const float smile = res == -1 ? lerp(8, 0, clamp01(rt / 0.2)) * k : 8 * k;   // not recognised: flat mouth
         const float my = cy + 19 * k;
-        g.DrawBezier(&pen, PointF(fx - 16 * k, my), PointF(fx - 7 * k, my + smile), PointF(fx + 7 * k, my + smile),
-                     PointF(fx + 16 * k, my));
+        if (f.action == fg::kActionMouth && res == 0) {   // open mouth, gently pulsing
+            float o = (6 + 4 * float(0.5 + 0.5 * std::sin(f.t * 5))) * k;
+            g.DrawEllipse(&pen, fx - 9 * k, my - o * 0.4f, 18 * k, o * 1.6f);
+        } else {
+            g.DrawBezier(&pen, PointF(fx - 16 * k, my), PointF(fx - 7 * k, my + smile), PointF(fx + 7 * k, my + smile),
+                         PointF(fx + 16 * k, my));
+        }
     }
 
     // --- success: check mark drawn inside the circle ---------------------------------------------------
@@ -363,6 +375,17 @@ void Overlay::run(HWND parent) {
     x_ = (mi.rcMonitor.left + mi.rcMonitor.right - w_) / 2;
     y_ = mi.rcMonitor.top + int(40 * dpi_);
 
+    // screen-flash window: covers the whole monitor, below the HUD, never takes input
+    WNDCLASSEXW fc{sizeof fc};
+    fc.lpfnWndProc = flash_wndproc;
+    fc.hInstance = mod;
+    fc.lpszClassName = L"WinFaceFlash";
+    RegisterClassExW(&fc);
+    flash_ = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW, fc.lpszClassName,
+                             L"WinFace flash", WS_POPUP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
+                             mi.rcMonitor.bottom - mi.rcMonitor.top, nullptr, nullptr, mod, this);
+    if (flash_) SetLayeredWindowAttributes(flash_, 0, 235, LWA_ALPHA);
+
     HWND h = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
                              wc.lpszClassName, L"WinFace", WS_POPUP, x_, y_, w_, h_, nullptr, nullptr, mod, this);
     hwnd_ = h;
@@ -394,10 +417,49 @@ void Overlay::run(HWND parent) {
     }
     if (pn) UnregisterPowerSettingNotification(pn);
     if (h) DestroyWindow(h);
+    if (flash_) DestroyWindow(flash_);
+    flash_ = nullptr;
     hwnd_ = nullptr;
     UnregisterClassW(wc.lpszClassName, mod);
+    UnregisterClassW(fc.lpszClassName, mod);
     GdiplusShutdown(gdip);
     tid_ = 0;
+}
+
+LRESULT CALLBACK Overlay::flash_wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    auto* self = reinterpret_cast<Overlay*>(GetWindowLongPtrW(h, GWLP_USERDATA));
+    if (m == WM_NCCREATE) {
+        SetWindowLongPtrW(h, GWLP_USERDATA, (LONG_PTR)((CREATESTRUCTW*)l)->lpCreateParams);
+    } else if ((m == WM_ERASEBKGND || m == WM_PAINT) && self) {
+        PAINTSTRUCT ps;
+        HDC dc = m == WM_PAINT ? BeginPaint(h, &ps) : (HDC)w;
+        RECT r;
+        GetClientRect(h, &r);
+        int c = std::max(0, self->flash_shown_);
+        HBRUSH b = CreateSolidBrush(RGB(c >> 16 & 0xFF, c >> 8 & 0xFF, c & 0xFF));
+        FillRect(dc, &r, b);
+        DeleteObject(b);
+        if (m == WM_PAINT) EndPaint(h, &ps);
+        return 1;
+    }
+    return DefWindowProcW(h, m, w, l);
+}
+
+// The engine publishes the flash timeline; show each colour exactly when it is due (same steady clock).
+void Overlay::update_flash(const Snapshot& s) {
+    if (!flash_) return;
+    int c = -1;
+    if (s.stage == fg::kStageFlash && visible_ && revealed_ && result_ == 0) c = fg::flash_colour_at(s.flash_t0, s.flash_rgb, now_s() * 1000);
+    if (c == flash_shown_) return;
+    flash_shown_ = c;
+    if (c < 0) {
+        ShowWindow(flash_, SW_HIDE);
+        return;
+    }
+    InvalidateRect(flash_, nullptr, TRUE);
+    ShowWindow(flash_, SW_SHOWNOACTIVATE);
+    UpdateWindow(flash_);
+    if (HWND hud = hwnd_) SetWindowPos(hud, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);   // HUD stays on top
 }
 
 void Overlay::paint() {
@@ -418,7 +480,9 @@ void Overlay::paint() {
             log_event(L"curtain lift refused %d times - waiting for a key press", kLiftTries);
         }
     }
-    if (s.has_face) last_ = s; else { last_.state = s.state; last_.hint = s.hint; last_.progress = s.progress; last_.direction = s.direction; }
+    update_flash(s);
+    if (s.has_face) last_ = s;
+    else { last_.state = s.state; last_.hint = s.hint; last_.progress = s.progress; last_.direction = s.direction; last_.action = s.action; }
 
     // smooth the glyph's inputs so it never jitters with the landmarks
     const float want_face = s.has_face ? 1.f : 0.f;
@@ -439,6 +503,7 @@ void Overlay::paint() {
     f.face = face_;
     f.look = look_;
     f.hint = last_.hint.c_str();
+    f.action = last_.action;
 
     // 32-bit premultiplied DIB for UpdateLayeredWindow
     BITMAPINFO bi{};

@@ -69,6 +69,27 @@ bool is_infrared_camera(const std::wstring& name) {
     return has_word(n, L"ir") || n.find(L"infrared") != std::wstring::npos;
 }
 
+// HDMI capture dongles and similar sit on a real USB bus but can feed any video (a screen, a deepfake), so they are
+// never used even though they are hardware.
+bool is_capture_device(const std::wstring& name) {
+    std::wstring n = lower(name);
+    for (const wchar_t* w : {L"capture", L"hdmi", L"cam link", L"elgato", L"virtual", L"xsplit", L"manycam", L"droidcam",
+                             L"iriun", L"epoccam", L"snap camera", L"video grabber", L"usb3 video"})
+        if (n.find(w) != std::wstring::npos) return true;
+    for (const wchar_t* w : {L"obs", L"ndi", L"camo"})   // short names: whole words only
+        if (has_word(n, w)) return true;
+    return false;
+}
+
+// the exact device: bus + ids + instance, e.g. usb#vid_0408&pid_5496&mi_00#8&5d2c72a&0&0000
+std::wstring camera_instance(const std::wstring& symlink) {
+    std::wstring v = lower(symlink);
+    if (v.rfind(L"\\\\?\\", 0) == 0) v = v.substr(4);
+    size_t h1 = v.find(L'#'), h2 = h1 == std::wstring::npos ? h1 : v.find(L'#', h1 + 1);
+    size_t h3 = h2 == std::wstring::npos ? h2 : v.find(L'#', h2 + 1);
+    return h3 != std::wstring::npos ? v.substr(0, h3) : v;
+}
+
 namespace {
 
 }  // namespace
@@ -86,7 +107,7 @@ std::vector<CameraEntry> list_cameras() {
             for (UINT32 i = 0; i < n; ++i) {
                 std::wstring link = lower(get_string(devs[i], MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK));
                 std::wstring name = get_string(devs[i], MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME);
-                out.push_back({name, link, is_hardware_camera(link), is_infrared_camera(name)});
+                out.push_back({name, link, is_hardware_camera(link) && !is_capture_device(name), is_infrared_camera(name)});
                 devs[i]->Release();
             }
             CoTaskMemFree(devs);
@@ -123,7 +144,7 @@ bool Camera::open(int width, int height, int fps) {
     for (UINT32 i = 0; i < count; ++i) {
         std::wstring link = lower(get_string(devs[i], MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK));
         std::wstring name = get_string(devs[i], MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME);
-        bool hw = is_hardware_camera(link), ir = is_infrared_camera(name);
+        bool hw = is_hardware_camera(link) && !is_capture_device(name), ir = is_infrared_camera(name);
         n_hw += hw;
         n_ir += hw && ir;
         bool ok = allowed_.empty() ? hw && !ir : hw && link.find(allowed_) != std::wstring::npos;

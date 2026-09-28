@@ -20,6 +20,7 @@ target_link_libraries(fgengine PUBLIC ${ORT_DIR}/lib/onnxruntime.lib)
 # the credential provider loaded by LogonUI.exe (lock screen) / CredUI
 add_library(WinFaceCP SHARED
     cp/dll.cpp cp/common.cpp cp/helpers.cpp cp/secret.cpp cp/scanner.cpp cp/overlay.cpp cp/credential.cpp cp/provider.cpp
+    cp/intruder.cpp
     cp/WinFaceCP.def)
 target_link_libraries(WinFaceCP PRIVATE fgengine delayimp.lib)
 target_link_options(WinFaceCP PRIVATE /DELAYLOAD:onnxruntime.dll)
@@ -27,13 +28,13 @@ target_link_options(WinFaceCP PRIVATE /DELAYLOAD:onnxruntime.dll)
 add_executable(fgcli tools/fgcli.cpp)
 target_link_libraries(fgcli PRIVATE fgengine)
 
-add_executable(fgsetup tools/fgsetup.cpp cp/common.cpp cp/secret.cpp)
+add_executable(fgsetup tools/fgsetup.cpp cp/common.cpp cp/secret.cpp cp/intruder.cpp)
 target_link_libraries(fgsetup PRIVATE fgengine shlwapi.lib)
 
 add_executable(fgcredtest tools/fgcredtest.cpp)
 
 # dev only (not installed): fgsetup's FaceGate -> WinFace migration on scratch folders + a scratch HKCU key
-add_executable(fgsetup_migratetest tools/fgsetup.cpp cp/common.cpp cp/secret.cpp)
+add_executable(fgsetup_migratetest tools/fgsetup.cpp cp/common.cpp cp/secret.cpp cp/intruder.cpp)
 target_link_libraries(fgsetup_migratetest PRIVATE fgengine shlwapi.lib)
 target_compile_definitions(fgsetup_migratetest PRIVATE WINFACE_MIGRATE_TEST)
 
@@ -41,7 +42,7 @@ target_compile_definitions(fgsetup_migratetest PRIVATE WINFACE_MIGRATE_TEST)
 add_executable(fgsound WIN32 tools/fgsound.cpp)
 
 # dev check of the lock-screen overlay, provider DLL and sound (renders the real HUD code; not installed)
-add_executable(fgoverlaytest tools/fgoverlaytest.cpp cp/overlay.cpp cp/common.cpp)
+add_executable(fgoverlaytest tools/fgoverlaytest.cpp cp/overlay.cpp cp/common.cpp cp/intruder.cpp)
 target_link_libraries(fgoverlaytest PRIVATE fgengine shlwapi.lib)
 
 foreach(t fgcli fgsetup)

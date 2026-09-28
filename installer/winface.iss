@@ -10,6 +10,7 @@
 #define Root ".."
 #define Build Root + "\build\Release"
 #define AppBin Root + "\app\WinFace\bin\publish"
+#define UpdBin Root + "\app\WinFaceUpdater\bin\publish"
 #define Clsid "{{C188DC15-E41E-4CCF-9DA9-8238E1D0BBDF}"
 #define ClsidPlain "{C188DC15-E41E-4CCF-9DA9-8238E1D0BBDF}"
 ; official InsightFace release (non-commercial licence) - pinned by SHA-256
@@ -75,6 +76,11 @@ Source: "{#AppBin}\WinFace.exe";                DestDir: "{app}"; Flags: ignorev
 Source: "{#AppBin}\WinFace.dll";                DestDir: "{app}"; Flags: ignoreversion
 Source: "{#AppBin}\WinFace.runtimeconfig.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#AppBin}\WinFace.deps.json";          DestDir: "{app}"; Flags: ignoreversion
+; the updater (runs without admin from a per-user scheduled task)
+Source: "{#UpdBin}\WinFaceUpdater.exe";                DestDir: "{app}"; Flags: ignoreversion
+Source: "{#UpdBin}\WinFaceUpdater.dll";                DestDir: "{app}"; Flags: ignoreversion
+Source: "{#UpdBin}\WinFaceUpdater.runtimeconfig.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#UpdBin}\WinFaceUpdater.deps.json";          DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 Name: "{commonappdata}\WinFace"; Flags: uninsneveruninstall
@@ -94,6 +100,8 @@ Name: "{autodesktop}\WinFace";  Filename: "{app}\WinFace.exe"; Tasks: desktopico
 
 [Run]
 Filename: "{app}\WinFace.exe"; Description: "Open WinFace to add your face"; Flags: postinstall nowait skipifsilent shellexec
+; after an automatic update (WinFaceUpdater runs setup with /SILENT /UPDATE) WinFace opens again by itself
+Filename: "{app}\WinFace.exe"; Flags: nowait shellexec; Check: IsUpdate
 
 [UninstallDelete]
 Type: files; Name: "{app}\WinFaceCP.old.*.dll"
@@ -118,6 +126,11 @@ var
   TermsAccept: TNewCheckBox;
   DownloadPage: TDownloadWizardPage;
   ModelReady, ModelDownloaded, NeedDotnet: Boolean;
+
+function IsUpdate: Boolean;
+begin
+  Result := Pos('/UPDATE', UpperCase(GetCmdTail)) > 0;
+end;
 
 function ModelWasDownloaded: Boolean;
 begin
@@ -337,6 +350,7 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   F: TFindRec;
+  Code: Integer;
 begin
   Result := '';
   if FindFirst(ExpandConstant('{app}\*.old.*.dll'), F) then
@@ -346,6 +360,9 @@ begin
     until not FindNext(F);
     FindClose(F);
   end;
+  { the app and the updater may be open (an update started from them): close them so their files can be replaced }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM WinFace.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM WinFaceUpdater.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
   MoveAsideIfLocked('WinFaceCP.dll');
   MoveAsideIfLocked('onnxruntime.dll');
 end;
@@ -374,6 +391,11 @@ begin
     if not FileExists(LogFile) then SaveStringToFile(LogFile, '', False);
     Icacls('"' + Data + '" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX');
     Icacls('"' + LogFile + '" /grant *S-1-5-32-545:M');
+    { the SYSTEM task that reports PIN / password sign-ins (PIN after restart / after 48 h / after failed attempts) }
+    if not Exec(ExpandConstant('{app}\fgsetup.exe'), 'update-task install', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+      Log('update task not installed: ' + IntToStr(Code));
+    if not Exec(ExpandConstant('{app}\fgsetup.exe'), 'events-task install', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+      Log('events task not installed: ' + IntToStr(Code));
     { a developer install from install.ps1 lived in Program Files\WinFace: the registration now points here }
     Old := ExpandConstant('{commonpf64}\FaceGate');   { the product's name before v1.0 }
     if DirExists(Old) and (CompareText(Old, ExpandConstant('{app}')) <> 0) then
@@ -391,6 +413,8 @@ var
 begin
   if CurUninstallStep = usUninstall then
   begin
+    Exec(ExpandConstant('{app}\fgsetup.exe'), 'events-task remove', '', SW_HIDE, ewWaitUntilTerminated, Code);
+    Exec(ExpandConstant('{app}\fgsetup.exe'), 'update-task remove', '', SW_HIDE, ewWaitUntilTerminated, Code);
     { ask first, while fgsetup.exe still exists: its erase also removes the password's TPM keys }
     EraseData := SuppressibleMsgBox('Also erase your enrolled faces, the stored (encrypted) password with its TPM keys, the log and all settings?' + #13#10#13#10 +
                                     'Choose No to keep them for a later reinstall.', mbConfirmation, MB_YESNO, IDNO) = IDYES;

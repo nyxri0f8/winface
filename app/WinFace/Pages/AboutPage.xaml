@@ -15,12 +15,28 @@
         <StackPanel>
           <TextBlock Text="Privacy: everything stays on this PC" Style="{StaticResource H2}" />
           <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,0" LineHeight="20" xml:space="preserve">•  WinFace never uploads anything: no account, no cloud, no telemetry, no ads.
-•  Camera images are never saved or shown - only face templates (numbers), in
+•  Camera images are never saved or shown (except intruder photos, if you turn them on) -
+    only face templates (numbers), in
     C:\ProgramData\WinFace, readable only by administrators.
 •  Your Windows password is encrypted by this PC's TPM chip; only the lock screen can use it,
     and the encrypted copy is useless on any other computer.
-•  Internet is used only during installation, to download the InsightFace model.
+•  Internet: the installer downloads the InsightFace model; the update check asks GitHub
+    for new versions (nothing about you is sent; off switch above). Face unlock itself stays offline.
 •  Home › Erase all face data removes all of it at any time.</TextBlock>
+        </StackPanel>
+      </Border>
+
+      <Border Style="{StaticResource Card}">
+        <StackPanel>
+          <DockPanel>
+            <Button DockPanel.Dock="Right" Content="Check for updates" Click="OnCheck" VerticalAlignment="Center" />
+            <TextBlock Text="Updates" Style="{StaticResource H2}" VerticalAlignment="Center" />
+          </DockPanel>
+          <CheckBox x:Name="AutoUpdate" Style="{StaticResource Switch}" Margin="0,12,0,0" Click="OnAuto">
+            <TextBlock Text="Check for updates automatically (at sign-in and once a day)" Style="{StaticResource Body}" />
+          </CheckBox>
+          <TextBlock Style="{StaticResource Sub}" FontSize="12" Margin="0,8,0,0"
+                     Text="Asks GitHub whether a newer WinFace release exists. Nothing about you or this PC is sent. A new version is only installed when you click 'Update now'; your faces, password and settings are kept." />
         </StackPanel>
       </Border>
 

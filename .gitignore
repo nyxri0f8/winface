@@ -32,3 +32,5 @@ brag-output/
 dist/
 app/WinFace/bin/
 app/WinFace/obj/
+app/WinFaceUpdater/bin/
+app/WinFaceUpdater/obj/

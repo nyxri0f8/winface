@@ -6,6 +6,8 @@
 #include "../engine/camera.h"
 #include "../engine/profiles.h"
 #include "common.h"
+#include "intruder.h"
+#include "secret.h"
 
 namespace fgcp {
 namespace {
@@ -82,18 +84,34 @@ void Scanner::run() {
     }
     log_event(L"scan start: camera %.0f ms, ready after %.0f ms (%s, %hs)", cam.open_ms(), now_ms() - t0, cam.info().name.c_str(),
               cam.info().format.c_str());
+    // the enrolled camera is pinned to its exact device: a different one (another port, a look-alike device) needs
+    // the owner to confirm it in the WinFace app first
+    std::wstring inst = fg::camera_instance(cam.info().symlink);
+    if (!cfg_.camera_instance.empty() && inst != cfg_.camera_instance) {
+        log_event(L"camera changed: expected %s, found %s (%s) - face unlock paused", cfg_.camera_instance.c_str(), inst.c_str(),
+                  cam.info().name.c_str());
+        if (running_as_system()) LockState::set_string(L"CameraChanged", cam.info().name.empty() ? inst : cam.info().name);
+        cam.close();
+        set([&](Snapshot& s) { s.hint = L"Camera changed"; s.state = fg::State::Fail; s.running = false; });
+        running_ = false;
+        done_(false, "camera changed");
+        return;
+    }
 
     fg::Params prm;
     prm.match = cfg_.match_threshold();
     prm.search_timeout_ms = cfg_.search_ms;
     prm.challenge_timeout_ms = cfg_.challenge_ms;
+    // the extra checks run only on some scans (randomly 2-3 a day, after 2 failures) - see extra_checks_due
+    prm.action = cfg_.action && extras_;
+    prm.flash_mode = extras_ ? (int)cfg_.flash : 0;
     fg::Engine eng(*rec_, *tex_, profiles, prm);
     eng.reset(now_ms());
     mesh_->reset();
     fg::Image frame;
     uint64_t seq = 0;
     double ts = 0;
-    bool saw_face = false;
+    bool saw_face = false, flash_logged = false;
     std::string result;
     bool unlocked = false;
     while (!stop_) {
@@ -102,13 +120,23 @@ void Scanner::run() {
         if (auto f = mesh_->process(frame)) faces.push_back(std::move(*f));
         saw_face = saw_face || !faces.empty();
         eng.set_hold(hold_);
-        const fg::Status& st = eng.step(frame, faces, now_ms());
+        const fg::Status& st = eng.step(frame, faces, now_ms(), ts);
+        if (!st.flash_report.empty() && !flash_logged) { log_event(L"%hs", st.flash_report.c_str()); flash_logged = true; }
+        if (cfg_.intruder_photos && !faces.empty()) {
+            std::lock_guard<std::mutex> lk(mu_);
+            last_face_frame_ = frame;
+        }
         set([&](Snapshot& s) {
             s.state = st.state;
             s.hint = widen(st.hint);
             s.progress = st.progress;
             s.direction = st.state == fg::State::Challenge ? st.direction : 0;
             s.waiting = st.waiting;
+            s.stage = st.state == fg::State::Challenge ? st.stage : 0;
+            s.action = st.stage == fg::kStageAction ? st.action : 0;
+            s.flash_t0 = st.flash_t0;
+            s.flash_rgb[0] = st.flash_rgb[0];
+            s.flash_rgb[1] = st.flash_rgb[1];
             s.has_face = !faces.empty();
             if (s.has_face) {
                 const fg::Face& f = faces[0];
@@ -126,6 +154,19 @@ void Scanner::run() {
     set([&](Snapshot& s) { s.running = false; });
     running_ = false;
     if (!stop_) done_(unlocked, result);
+}
+
+void Scanner::save_intruder_photo(const std::string& reason) {
+    fg::Image img;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        img = std::move(last_face_frame_);
+        last_face_frame_ = fg::Image{};
+    }
+    if (img.w == 0) return;
+    std::wstring err;
+    if (intruder_save(img, reason, err)) log_event(L"intruder photo saved (encrypted)");
+    else log_event(L"intruder photo not saved: %s", err.c_str());
 }
 
 }  // namespace fgcp

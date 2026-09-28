@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- WinFaceUpdater: checks GitHub Releases for a newer WinFace and installs it. Runs WITHOUT admin rights (from a
+       per-user scheduled task at sign-in and once a day); only the installer itself asks for admin (UAC). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>WinFaceUpdater</AssemblyName>
+    <RootNamespace>WinFaceUpdater</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\WinFace\winface.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <Product>WinFace</Product>
+    <Description>WinFace updater</Description>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="..\WinFace\winface.png" Link="winface.png" />
+    <Page Include="..\WinFace\Theme.xaml" Link="Theme.xaml" />
+  </ItemGroup>
+
+</Project>

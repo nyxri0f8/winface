@@ -32,11 +32,12 @@
                 <TextBlock Text="Your face and password never leave this PC" Style="{StaticResource H2}" Margin="12,0,0,0" />
               </StackPanel>
               <TextBlock Style="{StaticResource Body}" Margin="0,12,0,0" LineHeight="22" xml:space="preserve">•  Nothing is uploaded. WinFace has no account, no cloud, no telemetry and no ads.
-•  Camera images are never saved or shown. Only a face template (numbers) is kept, in
+•  Camera images are never saved or shown (except intruder photos - off unless you turn
+    them on). Only a face template (numbers) is kept, in
     C:\ProgramData\WinFace - readable only by administrators.
 •  Your Windows password is encrypted by this PC's TPM chip. Only the lock screen can use it,
     and the encrypted copy is useless on any other computer.
-•  The only internet use was during installation (the face model from InsightFace).
+•  Internet: only the installer (face model) and the update check (asks GitHub for new versions, no data sent).
 •  You can switch face unlock off, or erase everything it stored, at any time from Home.</TextBlock>
             </StackPanel>
           </Border>

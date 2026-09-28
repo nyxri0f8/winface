@@ -51,11 +51,13 @@ WinFace provides fast, secure facial recognition logon for standard RGB webcams 
 - [Quick Install (WinFace-Setup.exe)](#quick-install-winface-setupexe)
 - [The WinFace App](#the-winface-app)
 - [Building the Installer](#building-the-installer)
+- [Updates](#updates)
 - [Installation Guide (from source)](#installation--setup-guide-step-by-step)
 - [Command-Line Reference](#command-line-reference)
 - [Configuration Settings](#configuration-settings)
 - [Troubleshooting & Logs](#troubleshooting--logs)
 - [Emergency Recovery Procedure](#emergency-recovery-procedure)
+- [Reporting Security Issues](#reporting-security-issues)
 - [Credits](#credits)
 
 ---
@@ -116,6 +118,12 @@ Standard 2D face recognition is vulnerable to presentation attacks (photos, tabl
 
   If $\text{Residual} < 0.025$, the rotation is geometrically flat and rejected as a photo/screen attack.
 - **Identity Continuity During the Turn**: Before the challenge starts, the face must match frontally (3 of the last 5 frames at cosine similarity $\geq 0.42$). During the turn the head pose naturally lowers ArcFace scores, so each frame only has to stay above a floor of $\max(\text{match} - 0.08,\ 0.34)$, with a single motion-blurred frame forgiven. The floor stays above the best stranger in the LFW calibration (0.313), so a different face swapped in mid-turn is still rejected, and the frame that completes the turn must itself pass.
+- **Extra Checks, at Unpredictable Times**: The two checks below do not run on every unlock (normal unlocks stay fast). They run on **2-3 random unlocks a day**, chosen with `BCryptGenRandom` so nobody can predict them, and **always on the attempt after 2 failed ones**. (*Every unlock* and *Never* are available in WinFace > Security.) In 1,000 simulated days of 10 unlocks, every day got 2 or 3 extra checks.
+- **Random Blink or Open-Mouth Action**: After the head turn, a second random action (blink, or open the mouth - chosen with `BCryptGenRandom`) is required, measured from the landmarks (eye aspect ratio / inner-lip gap relative to your own baseline). A replayed video now has to match two independent random choices.
+- **Screen-Flash Check**: The display briefly shows two different random colours (red / green / blue, 0.4 s each). The skin colour on the forehead and cheeks must shift towards each flashed colour at the right moment, more than towards the other two channels. A phone or tablet screen held up to the camera, or a live deepfake that cannot know the colours, does not produce that response. It ships in **Measure only** mode (logged, never blocks) until it has been calibrated on your hardware; switch it to *Enforce* in WinFace > Security. Note that a printed photo reflects colour much like skin - prints are caught by the texture check instead.
+- **Camera Pinning**: Only real cameras on a hardware bus are used (USB, or built-in PCI / ACPI / MIPI). Virtual cameras (OBS, phone cameras, the Windows virtual-camera API), HDMI capture dongles and infrared sensors are refused. The exact device your face was captured with is pinned (bus + IDs + instance); if another device shows up in its place, face unlock pauses until the owner confirms it in the app.
+- **PIN Rules (like a phone)**: Face unlock waits for your PIN or password after **3 failed attempts** (counted across lock screens, not reset by locking again), **after a restart**, and when the PC **was not unlocked for 48 hours**. A small SYSTEM scheduled task, *WinFace sign-in events*, tells face unlock when a PIN / password sign-in happened. The state lives in `HKLM\SOFTWARE\WinFace\State`, writable only by SYSTEM and administrators.
+- **Intruder Photos (off by default)**: After a failed attempt the lock screen can keep one 640 px JPEG of whoever tried, encrypted with AES-256-GCM (tamper-evident); the per-photo key is sealed by an RSA-2048 TPM key usable only by SYSTEM and administrators, in a folder only they can open. At most 20 photos, none older than 30 days. Viewed and deleted in WinFace > Security.
 - **Lock-Screen Lift**: Only a recognised enrolled face lifts the lock screen automatically (WinFace sends a Shift tap and a click in the empty top-left corner from the sign-in desktop). Lifting it grants nothing: it only shows the same sign-in page a key press would.
 
 ### 6. Camera Hardware Enforcement
@@ -216,6 +224,7 @@ flowchart TD
 winface/
 ├── LICENSE                # Apache License 2.0
 ├── PRIVACY.md             # Privacy policy and warning (installer + app ask you to agree)
+├── SECURITY.md            # How to report vulnerabilities privately, scope, known limitations
 ├── CMakeLists.txt         # Build definition (C++20, static CRT, CFG, SDL, DelayLoad)
 ├── cp/                    # Credential Provider (loaded by LogonUI.exe)
 │   ├── common.h / .cpp    # Configuration and shared logging
@@ -243,6 +252,8 @@ winface/
 │   ├── fgsetup.cpp        # Enrollment, password vaulting, settings CLI
 │   └── fgsound.cpp        # Plays the unlock sound in its own process (outlives LogonUI)
 ├── assets/                # tile.bmp + banner.jpg (bench/make_tile.py, make_banner.py), sfx_unlock.wav (see Credits)
+├── UPDATES.md             # Changelog; each version's section is its release notes and the update dialog text
+├── app/WinFaceUpdater/    # Update checker (no admin): GitHub Releases -> "Update now" dialog -> verified silent update
 ├── app/WinFace/           # WinFace desktop app (WPF, .NET 8) - drives fgsetup.exe --json
 │   ├── Backend.cs         # Runs fgsetup and streams its JSON lines
 │   ├── SystemInfo.cs      # Smart App Control / TPM / provider / model checks (read-only)
@@ -250,7 +261,8 @@ winface/
 │   └── Pages/             # Home, Faces, Password, Test, Settings, Logs, About
 ├── installer/             # WinFace-Setup.exe (Inno Setup 6)
 │   ├── winface.iss        # Installer: SAC check, model download + SHA-256, registration, uninstall
-│   └── build.ps1          # One command: C++ build, app publish, checks, installer
+│   ├── build.ps1          # One command: C++ build, app + updater publish, checks, installer (+ .sha256)
+│   └── release.ps1        # Publishes an update: build + GitHub release with the UPDATES.md notes
 ├── install/               # Developer install and recovery scripts
 │   ├── install.cmd        # Double-click launcher: asks for admin, runs install.ps1
 │   ├── install.ps1        # Developer deployment, registration and post-install verification
@@ -312,9 +324,10 @@ WinFace (Start menu > **WinFace**, runs as administrator) is the control panel f
 | **Faces** | Add, update (re-capture) or delete up to 3 faces. Enrolment guides you through 5 head poses with a live landmark view - only dots, never the camera image. |
 | **Password** | Save or update your Windows password (sent to `fgsetup` over a private pipe, checked with Windows, sealed by the TPM) and check the saved one. |
 | **Test** | The same face check as the lock screen, including the head turn, with live scores. It never signs anyone in. |
+| **Security** | Whether face unlock is available or paused (and why), *Allow face unlock again*, camera-changed warning with *Use this camera*, the blink / mouth challenge, the screen flash (Off / Measure only / Enforce), the PIN rules (after restart, after 24 / 48 / 72 hours or never) and intruder photos (switch + encrypted gallery with delete). |
 | **Settings** | Camera, strictness, search and head-turn time, allowed failed attempts, unlock sound (with a preview). |
 | **Logs** | Live view of `C:\ProgramData\WinFace\log.txt`, copy, open folder. |
-| **About** | Privacy statement, recovery guide, uninstall, credits and licences. |
+| **About** | Updates (*Check for updates*, automatic check on/off), privacy statement, recovery guide, uninstall, credits and licences. |
 | **Setup guide** | Opens on first launch (and after an erase): the 7 steps above, full screen. |
 
 The lock screen's **Sign-in options** icon for face unlock is the same minimal Face ID-style glyph as the app icon (`assets/tile.bmp`, generated by `bench/make_tile.py`).
@@ -330,6 +343,24 @@ powershell -ExecutionPolicy Bypass -File .\installer\build.ps1 -Version 1.0.0
 Needs the source prerequisites below (Visual Studio 2022 C++, CMake, the models in `models/runtime`) plus the **.NET 8 SDK** and **Inno Setup 6** (`winget install JRSoftware.InnoSetup`). The script builds the C++ components, publishes the app, runs the engine self-test and the DLL/sound checks, and writes `dist\WinFace-Setup-<version>.exe`.
 
 The setup bundles only redistributable files: the Apache 2.0 models (MediaPipe, MiniFASNet) and MIT ONNX Runtime. The InsightFace `w600k_r50.onnx` model is downloaded during setup. Developer builds may instead use a locally quantized `arcface_int8.onnx` (about twice as fast); the engine uses it automatically when present.
+
+---
+
+## Updates
+
+**For users:** WinFace updates itself. `WinFaceUpdater.exe` runs from a per-user scheduled task (*WinFace update check*) 3 minutes after you sign in and once a day, without admin rights. When a newer release is on GitHub it shows **WinFace x.y.z is available** with the list of new features and fixes, and **Update now / Later / Skip this version**. *Update now* downloads the setup from GitHub, verifies its SHA-256 fingerprint against the one published with the release, and installs it silently (Windows asks for permission once); your faces, password and settings are kept and WinFace reopens. *About > Check for updates* checks right away; *About > Check for updates automatically* turns the background check off. All changes are listed in [UPDATES.md](UPDATES.md).
+
+**For maintainers - publishing an update:**
+1. Make your changes, bump nothing by hand.
+2. Add a section to [UPDATES.md](UPDATES.md): `## 1.2.0 - <date>` with `### New` / `### Fixed` bullet points (written for users - this is what the update dialog shows).
+3. Commit and push.
+4. Run:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\installer\release.ps1 -Version 1.2.0
+   ```
+   It builds and tests everything, then creates the GitHub release `v1.2.0` with the setup, its `.sha256` file and the UPDATES.md notes. Installed copies offer the update within a day.
+
+A plain `git push` alone does not reach users: the setup has to be built locally (the face models are not in the repository), so an update always goes out as a GitHub release.
 
 ---
 
@@ -626,6 +657,15 @@ Tests whether the stored credential is valid with the Windows authentication aut
 & "C:\Program Files\WinFace\fgsetup.exe" verify
 ```
 
+### Security Commands
+```powershell
+& "C:\Program Files\WinFace\fgsetup.exe" intruders                 # list intruder photos
+& "C:\Program Files\WinFace\fgsetup.exe" intruders delete all      # delete them
+& "C:\Program Files\WinFace\fgsetup.exe" unlock-reset              # clear a face-unlock pause (after failed attempts etc.)
+& "C:\Program Files\WinFace\fgsetup.exe" events-task install       # (re)create the sign-in events task
+& "C:\Program Files\WinFace\fgsetup.exe" update-task install       # (re)create the per-user update-check task
+```
+
 ### Erase Everything
 Deletes all enrolled faces, the stored password (files **and** its TPM keys, removed through a one-off SYSTEM task that is deleted again), the log contents and all settings, and switches face unlock off. WinFace itself stays installed:
 
@@ -670,6 +710,12 @@ Parameters can be adjusted in the registry using `fgsetup set <Parameter> <Value
 | `MaxFails` | `3` | `1` - `5` | Consecutive failed recognitions before falling back exclusively to PIN/password. Scans that ran while the lock-screen picture was still up, or that never saw a face in range, do not count. |
 | `Strictness` | `0` | `0` - `2` | Recognition threshold: `0` = Balanced (0.42), `1` = Strict (0.48), `2` = Relaxed (0.38). |
 | `Sounds` | `1` | `0` or `1` | Play the unlock sound (`assets/sfx_unlock.wav`, via `fgsound.exe`) when the face unlock succeeds. There is no sound on scan start or rejection. |
+| `ExtraChecks` | `1` | `0` - `2` | When the blink/mouth and flash checks run: `0` never, `1` randomly 2-3 times a day + always after 2 failed attempts, `2` every unlock. |
+| `Action` | `1` | `0` or `1` | Random blink / open-mouth challenge after the head turn (when an extra check runs). |
+| `FlashCheck` | `1` | `0` - `2` | Screen-flash check: `0` off, `1` measure only (logged), `2` enforce. |
+| `PinAfterRestart` | `1` | `0` or `1` | Face unlock only after one PIN / password sign-in since the last restart. |
+| `PinAfterHours` | `48` | `0` - `720` | PIN required when the PC was not unlocked for this many hours; `0` = never. |
+| `IntruderPhotos` | `0` | `0` or `1` | Keep an encrypted photo after a failed attempt (turning it on creates the TPM key). |
 | `Camera` | Automatic | Device ID or `auto` | The camera to use. **Automatic** picks the first working colour camera and remembers it when you add a face, so the lock screen always uses the same one. Infrared (Windows Hello) sensors and virtual cameras (OBS, phone cameras) are never used. |
 
 Examples:
@@ -712,6 +758,12 @@ The lock screen did not react to WinFace's automatic lift (a Shift tap plus a cl
 
 ### The unlock sound is cut off
 The sound is played by `C:\Program Files\WinFace\fgsound.exe`. If that file is missing, the provider plays the sound inside `LogonUI.exe`, which exits about a second after sign-in. Re-run the installer to restore it.
+
+### Face unlock says "PIN required"
+That is the PIN rules working: after a restart, after 48 hours without unlocking, after 3 failed attempts, or after a camera change, sign in once with your PIN or password and face unlock is available again. WinFace > Security shows the reason; *Allow face unlock again* clears it from the app. Log lines: `face unlock paused: ...` and `sign-in event: PIN / password - face unlock available again`.
+
+### Checking the screen-flash measurements
+With the flash in *Measure only* mode every scan logs a line such as `flash R +3.1% B +2.4% pass (frames 4/5/4)`. After a few days of normal use, if your own unlocks show `pass` reliably, switch to *Enforce* in WinFace > Security. `too few frames` means the camera delivered too few frames during the flashes (a slow camera or CPU); keep *Measure only* in that case.
 
 ### Camera problems
 - **"only an infrared camera was found"** - Windows Hello laptops show a colour camera and an infrared (IR) sensor. WinFace needs the colour one; if Windows lists only the IR sensor, check that the normal webcam is enabled in Device Manager and in `Settings` > `Privacy & security` > `Camera`.
@@ -777,6 +829,12 @@ If you can sign in using your PIN or password:
    reg unload HKLM\OFFSOFT
    ```
 6. Type `exit` and select **Continue** to boot into Windows. The default Windows sign-in screen will be restored.
+
+---
+
+## Reporting Security Issues
+
+Please report vulnerabilities privately - see **[SECURITY.md](SECURITY.md)** for how, what is in scope (including "I fooled it with a photo / video / mask"), the known limitations, and the safe-harbour promise for good-faith research on your own devices.
 
 ---
 

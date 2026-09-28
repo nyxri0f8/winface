@@ -1,5 +1,7 @@
 #include "credential.h"
 
+#include <algorithm>
+
 
 #include "helpers.h"
 #include "secret.h"
@@ -11,6 +13,7 @@ extern const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR kFields[FI_NUM_FIELDS];
 FaceCredential::FaceCredential(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, const Config& cfg, const std::wstring& sid,
                                const std::wstring& user, bool local, Unlocked on_unlocked)
     : cpus_(cpus), cfg_(cfg), sid_(sid), user_(user), local_(local), on_unlocked_(std::move(on_unlocked)) {
+    persist_ = (cpus == CPUS_UNLOCK_WORKSTATION || cpus == CPUS_LOGON) && running_as_system();
     dll_addref();
 }
 
@@ -78,6 +81,14 @@ IFACEMETHODIMP FaceCredential::UnAdvise() {
     return S_OK;
 }
 
+// Only the real lock / sign-in screen (SYSTEM) keeps lockout state; the CredUI test prompt runs as the user.
+std::wstring FaceCredential::lockout() const {
+    if (!persist_) return L"";
+    return lockout_reason(cfg_, LockState::load(), filetime_now(), boot_filetime());
+}
+
+bool FaceCredential::locked() const { return fails_ >= (int)cfg_.max_fails || !lockout().empty(); }
+
 void FaceCredential::restart_scan(const wchar_t* why) {
     if (!scanner_) return;
     // After a successful face check Windows is signing in: keep the camera OFF, otherwise it is still held
@@ -86,21 +97,56 @@ void FaceCredential::restart_scan(const wchar_t* why) {
     if (u != 0 && GetTickCount64() - u < 15000) { log_event(L"scan request '%s' ignored: signing in", why); return; }
     log_event(L"scan request: %s", why);
     if (fails_ >= (int)cfg_.max_fails) { set_status(L"Face not recognised - use your PIN (Sign-in options)"); return; }
+    std::wstring locked = lockout();
+    if (!locked.empty()) {   // PIN rules (after restart, unused for a while, too many failures, camera changed)
+        log_event(L"face unlock paused: %s", locked.c_str());
+        if (overlay_) overlay_->show(false);
+        set_status(locked.c_str());
+        return;
+    }
     if (overlay_) { overlay_->reset(); }
     set_status(L"Look at the camera");
     // behind the curtain: recognise now, ask for the head turn only once the user can see the prompt
     scanner_->set_hold(overlay_ && !overlay_->revealed());
+    // extra checks (flash + blink/mouth): not every time - randomly 2-3 times a day and after 2 failed attempts
+    bool extras;
+    if (persist_) {
+        LockState s = LockState::load();
+        DWORD day = s.extra_day, plan = s.extra_plan;
+        int hour = 0;
+        DWORD today = local_yyyymmdd(&hour);
+        extras = extra_checks_due(cfg_, s, std::max(fails_.load(), (int)s.fails), secure_random(), today, hour);
+        if (s.extra_day != day || s.extra_plan != plan) {
+            LockState::set_dword(L"ExtraDay", s.extra_day);
+            LockState::set_dword(L"ExtraPlan", s.extra_plan);
+            LockState::set_dword(L"ExtraDone", s.extra_done);
+        }
+    } else {   // the CredUI test prompt keeps no state
+        extras = cfg_.extra_checks == 2 || (cfg_.extra_checks == 1 && fails_ >= 2);
+    }
+    extras_active_ = extras;
+    scanner_->set_extras(extras);
+    if (extras) log_event(L"this scan includes the extra checks (flash + blink/mouth)");
     scanner_->start();
 }
 
 void FaceCredential::on_scan_done(bool unlocked, const std::string& reason) {
     // worker thread
+    // one of today's random extra checks was used (only when it really ran: an unlock or a counted failure)
+    auto count_extra = [&] { if (extras_active_ && persist_) LockState::set_dword(L"ExtraDone", LockState::load().extra_done + 1); };
     if (unlocked) {
         unlocked_at_ = GetTickCount64();   // before anything else can ask for a new scan
+        count_extra();
+        if (persist_) LockState::set_dword(L"Fails", 0);
         verified_at_ = GetTickCount64();
         if (overlay_) overlay_->result(true, cfg_.sounds);
         set_status(L"Unlocking...");
         if (on_unlocked_) on_unlocked_();
+        return;
+    }
+    if (reason == "camera changed") {
+        if (overlay_) overlay_->show(false);
+        set_status(L"The camera changed - sign in with your PIN, then confirm it in the WinFace app");
         return;
     }
     if (reason.rfind("idle", 0) == 0 || reason.rfind("camera", 0) == 0 || reason.rfind("models", 0) == 0 ||
@@ -110,8 +156,15 @@ void FaceCredential::on_scan_done(bool unlocked, const std::string& reason) {
         return;
     }
     int n = ++fails_;
+    count_extra();
+    if (persist_) {   // counted across lock screens: after MaxFails only the PIN / password clears it
+        DWORD total = LockState::load().fails + 1;
+        LockState::set_dword(L"Fails", total);
+        n = std::max(n, (int)total);
+        if (cfg_.intruder_photos && scanner_) scanner_->save_intruder_photo(reason);
+    }
     if (overlay_) overlay_->result(false, cfg_.sounds);
-    set_status(n >= (int)cfg_.max_fails ? L"Face not recognised - use your PIN (Sign-in options)" : L"Not recognised - click to try again");
+    set_status(n >= (int)cfg_.max_fails ? L"Face unlock paused after too many failed attempts - use your PIN" : L"Not recognised - click to try again");
 }
 
 bool FaceCredential::take_verified() {
@@ -194,6 +247,7 @@ IFACEMETHODIMP FaceCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZ
     }
     log_event(L"credential serialized for %s", user_.c_str());
     served_at_ = GetTickCount64();
+    if (persist_) LockState::set_qword(L"LastFaceServe", filetime_now());   // lets the sign-in events task tell face from PIN
     *r = CPGSR_RETURN_CREDENTIAL_FINISHED;
     return S_OK;
 }

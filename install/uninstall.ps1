@@ -12,6 +12,7 @@ $data  = Join-Path $env:ProgramData 'WinFace'
 Remove-Item -Force -Recurse "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\$clsid" -ErrorAction SilentlyContinue
 Remove-Item -Force -Recurse "HKLM:\SOFTWARE\Classes\CLSID\$clsid" -ErrorAction SilentlyContinue
 Remove-Item -Force -Recurse 'HKLM:\SOFTWARE\WinFace' -ErrorAction SilentlyContinue
+schtasks.exe /delete /f /tn "WinFace sign-in events" 2>$null | Out-Null
 Write-Host "Credential provider unregistered."
 
 # 2. files (the DLL may still be loaded by LogonUI until the next lock/reboot)

@@ -1,0 +1,112 @@
+<UserControl x:Class="WinFace.Pages.SecurityPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="36,30,36,30" MaxWidth="820" HorizontalAlignment="Left">
+      <TextBlock Text="Security" Style="{StaticResource H1}" />
+      <TextBlock Text="Extra checks against photos, videos and replays, and when your PIN is required instead of your face."
+                 Style="{StaticResource Sub}" Margin="0,0,0,22" />
+
+      <!-- status -->
+      <Border x:Name="StatusCard" Style="{StaticResource Card}">
+        <DockPanel>
+          <Button x:Name="ResetButton" DockPanel.Dock="Right" Content="Allow face unlock again" Click="OnReset" VerticalAlignment="Center" Visibility="Collapsed" />
+          <Ellipse x:Name="StatusDot" DockPanel.Dock="Left" Width="10" Height="10" Margin="0,6,14,0" VerticalAlignment="Top" Fill="{StaticResource Faint}" />
+          <StackPanel>
+            <TextBlock x:Name="StatusTitle" Text="Checking..." Style="{StaticResource H2}" />
+            <TextBlock x:Name="StatusSub" Style="{StaticResource Sub}" Margin="0,4,0,0" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
+      <!-- camera changed -->
+      <Border x:Name="CameraCard" Style="{StaticResource Card}" BorderBrush="{StaticResource Warn}" Visibility="Collapsed">
+        <StackPanel>
+          <TextBlock Text="The camera changed" Style="{StaticResource H2}" Foreground="{StaticResource Warn}" />
+          <TextBlock x:Name="CameraText" Style="{StaticResource Sub}" Margin="0,6,0,12" />
+          <WrapPanel>
+            <Button x:Name="UseCameraButton" Content="Use this camera" Style="{StaticResource AccentButton}" Click="OnUseCamera" Margin="0,0,8,0" />
+            <Button Content="Choose in Settings" Click="OnSettings" />
+          </WrapPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- liveness -->
+      <Border Style="{StaticResource Card}">
+        <StackPanel>
+          <TextBlock Text="Liveness checks" Style="{StaticResource H2}" />
+          <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,14"
+                     Text="Always on: texture check (MiniFASNet) and a random head turn with a 3D test. The checks below make a replayed video or a deepfake much harder." />
+          <TextBlock Text="How often" Style="{StaticResource Body}" Margin="0,0,0,6" />
+          <Border Style="{StaticResource SegBar}">
+            <StackPanel Orientation="Horizontal">
+              <RadioButton x:Name="ExtraRandom" Style="{StaticResource Seg}" GroupName="extra" Content="Randomly, 2-3 times a day" Click="OnSave" />
+              <RadioButton x:Name="ExtraAlways" Style="{StaticResource Seg}" GroupName="extra" Content="Every unlock" Click="OnSave" />
+              <RadioButton x:Name="ExtraNever" Style="{StaticResource Seg}" GroupName="extra" Content="Never" Click="OnSave" />
+            </StackPanel>
+          </Border>
+          <TextBlock Style="{StaticResource Sub}" FontSize="12" Margin="0,6,0,18" MaxWidth="660" HorizontalAlignment="Left"
+                     Text="Randomly (recommended): the two checks below run on 2-3 unpredictable unlocks a day, and always on the attempt after 2 failures - so normal unlocks stay fast, but nobody can know when a check is coming." />
+          <CheckBox x:Name="Action" Style="{StaticResource Switch}" Click="OnSave">
+            <StackPanel>
+              <TextBlock Text="Random blink or open-mouth challenge" Style="{StaticResource Body}" />
+              <TextBlock Text="After the head turn you are asked to blink or open your mouth, chosen at random. A replay then needs two random actions."
+                         Style="{StaticResource Sub}" FontSize="12" MaxWidth="600" />
+            </StackPanel>
+          </CheckBox>
+
+          <TextBlock Text="Screen flash" Style="{StaticResource Body}" Margin="0,20,0,6" />
+          <Border Style="{StaticResource SegBar}">
+            <StackPanel Orientation="Horizontal">
+              <RadioButton x:Name="FlashOff" Style="{StaticResource Seg}" GroupName="flash" Content="Off" Click="OnSave" />
+              <RadioButton x:Name="FlashMeasure" Style="{StaticResource Seg}" GroupName="flash" Content="Measure only" Click="OnSave" />
+              <RadioButton x:Name="FlashEnforce" Style="{StaticResource Seg}" GroupName="flash" Content="Enforce" Click="OnSave" />
+            </StackPanel>
+          </Border>
+          <TextBlock Style="{StaticResource Sub}" FontSize="12" Margin="0,6,0,0" MaxWidth="660" HorizontalAlignment="Left"
+                     Text="The screen briefly shows two random colours (0.4 s each) and WinFace checks that your skin reflects them at the right moment - a phone screen or a live deepfake cannot know the colours. 'Measure only' logs the result without ever blocking you; use it for a few days, check the log (lines starting with 'flash'), then switch to Enforce. Works best indoors with the screen reasonably bright. Two short flashes, not a strobe - but switch it off if flashing light bothers you." />
+        </StackPanel>
+      </Border>
+
+      <!-- PIN rules -->
+      <Border Style="{StaticResource Card}">
+        <StackPanel>
+          <TextBlock Text="When your PIN is required" Style="{StaticResource H2}" />
+          <TextBlock Style="{StaticResource Sub}" Margin="0,4,0,14" Text="Like a phone: face unlock waits until you have signed in with your PIN or password." />
+          <TextBlock x:Name="FailsText" Style="{StaticResource Body}" Margin="0,0,0,12" />
+          <CheckBox x:Name="PinRestart" Style="{StaticResource Switch}" Click="OnSave">
+            <TextBlock Text="After a restart" Style="{StaticResource Body}" />
+          </CheckBox>
+          <TextBlock Text="When the PC was not unlocked for" Style="{StaticResource Body}" Margin="0,16,0,6" />
+          <Border Style="{StaticResource SegBar}">
+            <StackPanel x:Name="Hours" Orientation="Horizontal" />
+          </Border>
+          <StackPanel x:Name="TaskWarn" Orientation="Horizontal" Margin="0,14,0,0" Visibility="Collapsed">
+            <TextBlock Text="These two rules need the sign-in events task, which is not installed." Style="{StaticResource Sub}" Foreground="{StaticResource Warn}" VerticalAlignment="Center" />
+            <Button Content="Install it" Click="OnInstallTask" Margin="12,0,0,0" Padding="12,5" FontSize="12.5" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- intruder photos -->
+      <Border Style="{StaticResource Card}">
+        <StackPanel>
+          <DockPanel>
+            <CheckBox x:Name="Intruders" DockPanel.Dock="Left" Style="{StaticResource Switch}" Click="OnIntruders">
+              <TextBlock Text="Intruder photos" Style="{StaticResource H2}" />
+            </CheckBox>
+          </DockPanel>
+          <TextBlock Style="{StaticResource Sub}" Margin="0,6,0,0" MaxWidth="660" HorizontalAlignment="Left"
+                     Text="Off by default. When on, the lock screen keeps one small photo of whoever fails a face check, encrypted with a key in this PC's TPM that only Windows (SYSTEM) and administrators can use. At most 20 photos are kept, none longer than 30 days. They never leave this PC." />
+          <DockPanel Margin="0,16,0,8">
+            <Button x:Name="DeleteAll" DockPanel.Dock="Right" Content="Delete all" Style="{StaticResource DangerButton}" Click="OnDeleteAll" Padding="12,5" FontSize="12.5" />
+            <TextBlock x:Name="PhotosText" Style="{StaticResource Body}" VerticalAlignment="Center" />
+          </DockPanel>
+          <WrapPanel x:Name="Photos" />
+        </StackPanel>
+      </Border>
+
+      <TextBlock x:Name="SaveText" Style="{StaticResource Sub}" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

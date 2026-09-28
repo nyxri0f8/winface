@@ -56,6 +56,11 @@ public static class Runs
             code = await Backend.Stream(["test"], el =>
             {
                 last = el;
+                if (el.Str("t") == "flash")
+                {
+                    MainWindow.Instance?.Flash(el.Num("start_in"), el.Num("base"), el.Num("on"), el.Num("gap"), el.Str("c1"), el.Str("c2"));
+                    return;
+                }
                 if (el.Str("t") != "frame") return;
                 hint.Text = el.Str("hint");
                 int dir = (int)el.Num("direction");
@@ -95,7 +100,7 @@ public static class AppState
     }
 
     /// <summary>The privacy policy + warning version the user agreed to (bump PolicyVersion to ask again).</summary>
-    const int PolicyVersion = 1;
+    const int PolicyVersion = 2;   // 2: intruder photos, screen flash, PIN rules (PRIVACY.md 1.1)
     public static bool PolicyAccepted
     {
         get => Registry.CurrentUser.OpenSubKey(Key)?.GetValue("PolicyAccepted") is int v && v >= PolicyVersion;
@@ -103,6 +108,16 @@ public static class AppState
         {
             using var k = Registry.CurrentUser.CreateSubKey(Key);
             k.SetValue("PolicyAccepted", value ? PolicyVersion : 0, RegistryValueKind.DWord);
+        }
+    }
+
+    public static bool SetupSkipped
+    {
+        get => Registry.CurrentUser.OpenSubKey(Key)?.GetValue("SetupSkipped") is 1;
+        set
+        {
+            using var k = Registry.CurrentUser.CreateSubKey(Key);
+            k.SetValue("SetupSkipped", value ? 1 : 0, RegistryValueKind.DWord);
         }
     }
 

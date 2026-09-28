@@ -41,6 +41,11 @@ public partial class HomePage : UserControl
             _ => ("Face unlock is off", "Finish the steps below, then switch it on for the lock screen.", (Brush)FindResource("SubText")),
         };
 
+        AlertCard.Visibility = st.Mode == "lock" && (st.Locked.Length > 0 || st.CameraChanged.Length > 0) ? Visibility.Visible : Visibility.Collapsed;
+        AlertTitle.Text = st.CameraChanged.Length > 0 ? "The camera changed" : "Face unlock is paused";
+        AlertText.Text = st.CameraChanged.Length > 0
+            ? $"\"{st.CameraChanged}\" was found instead of your camera. Confirm it on the Security page if you changed it."
+            : st.Locked;
         bool hasFace = st.Faces.Count > 0, hasPw = st.Password && st.Linked;
         ModeLock.IsEnabled = ModeTest.IsEnabled = hasFace && hasPw;
         ModeHint.Visibility = ModeLock.IsEnabled ? Visibility.Collapsed : Visibility.Visible;
@@ -163,6 +168,7 @@ public partial class HomePage : UserControl
     async void OnRecheck(object sender, RoutedEventArgs e) => await Refresh();
 
     void OnGuide(object sender, RoutedEventArgs e) => MainWindow.Instance?.ShowSetup();
+    void OnSecurity(object sender, RoutedEventArgs e) => MainWindow.Instance?.Go("security");
 
     async void OnOff(object sender, RoutedEventArgs e)
     {
@@ -179,6 +185,7 @@ public partial class HomePage : UserControl
         if (MessageBox.Show(
                 "This permanently deletes from this PC:\n\n" +
                 "  •  all enrolled faces\n" +
+                "  •  all intruder photos and their TPM key\n" +
                 "  •  the stored (encrypted) Windows password and its TPM keys\n" +
                 "  •  the face unlock log\n" +
                 "  •  all WinFace settings\n\n" +

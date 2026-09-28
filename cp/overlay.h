@@ -32,6 +32,7 @@ struct HudFrame {
     float face = 0;           // 0..1 smoothed "a face is in view"
     float look = 0;           // -1..1 smoothed head offset (the glyph's face follows the user)
     const wchar_t* hint = L"";
+    int action = 0;           // fg::Action: the glyph shows what to do (eyes close / mouth opens)
 };
 void render_hud(Gdiplus::Graphics& g, float scale, const HudFrame& f);   // g covers kHudW x kHudH * scale
 double hud_opacity(const HudFrame& f);                                    // 0 once the result has faded out
@@ -61,11 +62,15 @@ private:
     void on_input(HRAWINPUT ri);  // overlay thread only
     void reveal(const wchar_t* why);  // overlay thread only
     static LRESULT CALLBACK wndproc(HWND, UINT, WPARAM, LPARAM);
+    static LRESULT CALLBACK flash_wndproc(HWND, UINT, WPARAM, LPARAM);
+    void update_flash(const Snapshot& s);   // overlay thread only
 
     Source src_;
     DisplayCb on_display_;
     RevealCb on_reveal_;
     std::function<bool()> lift_;
+    HWND flash_ = nullptr;            // full-screen colour for the screen-flash check (overlay thread only)
+    int flash_shown_ = -1;            // colour on screen now, -1 none
     int lift_tries_ = 0;              // automatic lift attempts for this curtain (overlay thread only)
     double lift_next_ = 0;
     std::thread th_;

@@ -93,7 +93,7 @@ public:
         *count = cred_ ? 1 : 0;
         // Face is the default tile (it starts scanning straight away, like Windows Hello face);
         // the PIN stays one click away under "Sign-in options".
-        *def = cred_ ? 0 : CREDENTIAL_PROVIDER_NO_DEFAULT;
+        *def = cred_ && !cred_->locked() ? 0 : CREDENTIAL_PROVIDER_NO_DEFAULT;   // PIN first while face is paused
         *auto_logon = FALSE;
         if (cred_ && pending_logon_.exchange(false)) {
             *def = 0;
