@@ -29,9 +29,12 @@
 
 <p align="center">
   How it works (camera → on-device engine → liveness → TPM-sealed password → Windows), how to install <b>WinFace-Setup.exe</b>,<br>
-  the guided setup, the security layers, privacy and auto-updates - with subtitles. <i>Click the preview for the full video with sound.</i><br>
-  <a href="assets/winface-explainer.mp4">Watch here</a> &nbsp;·&nbsp;
-  <a href="https://github.com/nyxri0f8/winface/releases/download/v1.1.0/WinFace-Explainer-1080p.mp4">Download full quality (1080p)</a>
+  the guided setup, the security layers, privacy and auto-updates - with subtitles. <i>Click the preview to watch it with sound.</i>
+</p>
+
+<p align="center">
+  <a href="https://github.com/nyxri0f8/winface/releases/download/v1.1.0/WinFace-Explainer-1080p.mp4"><b>⬇ Download the full explainer video</b></a> (MP4, 1080p, 2:34, 49 MB) &nbsp;·&nbsp;
+  <a href="assets/winface-explainer.mp4">Watch it on GitHub</a>
 </p>
 
 WinFace provides fast, secure facial recognition logon for standard RGB webcams without requiring proprietary infrared (IR) sensors. It integrates natively into Windows `LogonUI.exe` using a custom C++20 Credential Provider, backed by hardware TPM 2.0 key isolation, on-device neural network inference, and multi-layered anti-spoofing based on 3D geometric parallax.
